@@ -13,14 +13,25 @@ type ProjectWithScenes = {
   topic: string;
   platform: string;
   language: string;
-  durationSeconds: number;
   aspectRatio: string;
+  durationSeconds: number;
   style: string | null;
   status: string;
   progress: number | null;
-  thumbnailUrl: string | null;
+  workflowJobId: string | null;
+  renderJobId: string | null;
+  scriptJson: unknown;
+  visualBibleJson: unknown;
+  directorNotesJson: unknown;
   finalVideoUrl: string | null;
+  thumbnailUrl: string | null;
   totalCostCredits: number;
+  errorMessage: string | null;
+  queuedAt: Date | null;
+  startedAt: Date | null;
+  renderedAt: Date | null;
+  completedAt: Date | null;
+  failedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   scenes: Array<{
