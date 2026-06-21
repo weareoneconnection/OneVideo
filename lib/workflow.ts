@@ -275,7 +275,7 @@ export async function runProjectWorkflow(projectId: string) {
       topic: project.topic,
       script,
       scenes,
-      sceneRecords: createdScenes.map((scene) => ({
+      sceneRecords: createdScenes.map((scene: { id: string; sceneIndex: number }) => ({
         id: scene.id,
         sceneIndex: scene.sceneIndex
       }))

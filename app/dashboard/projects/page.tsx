@@ -1,3 +1,4 @@
+import type { Project, Scene } from "@prisma/client";
 import { Nav } from "@/components/nav";
 import { ProjectCard } from "@/components/project-card";
 import { db } from "@/lib/db";
@@ -5,6 +6,10 @@ import { ensureDemoUser } from "@/lib/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type ProjectWithScenes = Project & {
+  scenes: Scene[];
+};
 
 export default async function ProjectsPage() {
   const user = await ensureDemoUser();
@@ -22,7 +27,7 @@ export default async function ProjectsPage() {
           <a href="/create" className="rounded-2xl bg-white px-5 py-3 font-semibold text-black">New Video</a>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {projects.map((project) => <ProjectCard key={project.id} project={project} />)}
+          {projects.map((project: ProjectWithScenes) => <ProjectCard key={project.id} project={project} />)}
         </div>
         {projects.length === 0 && <p className="mt-12 rounded-2xl border border-line bg-panel p-8 text-muted">No projects yet. Create your first AI video.</p>}
       </main>

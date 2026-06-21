@@ -4,6 +4,61 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { StatusPill } from "./status-pill";
 
+type VisualBiblePayload = {
+  protagonist?: string;
+  wardrobe?: string;
+  coreSetting?: string;
+  propAnchors?: string[];
+  visualStyle?: string;
+};
+
+type ScriptPayload = {
+  hook?: string;
+  body?: string;
+  cta?: string;
+  fullVoiceover?: string;
+  visualBible?: VisualBiblePayload;
+};
+
+type ProjectSceneItem = {
+  id: string;
+  sceneIndex: number;
+  durationSeconds: number;
+  voiceover?: string | null;
+  visualPrompt?: string | null;
+  videoPrompt?: string | null;
+  cameraMotion?: string | null;
+  mood?: string | null;
+  status: string;
+  provider?: string | null;
+  model?: string | null;
+  videoUrl?: string | null;
+  imageUrl?: string | null;
+  firstFrameUrl?: string | null;
+  qualityScore?: number | null;
+  reviewStatus?: string | null;
+  qualityNotes?: string | null;
+  errorMessage?: string | null;
+  entryState?: string | null;
+  exitState?: string | null;
+  continuityAnchor?: string | null;
+};
+
+type ProjectAssetItem = {
+  id: string;
+  type: string;
+  url: string;
+  mimeType?: string | null;
+};
+
+type ProjectModelTaskItem = {
+  id: string;
+  provider: string;
+  model: string;
+  taskType: string;
+  status: string;
+};
+
 type ProjectPayload = {
   id: string;
   title?: string | null;
@@ -15,14 +70,14 @@ type ProjectPayload = {
   status: string;
   progress?: number | null;
   queuedAt?: string | null;
-  scriptJson?: any;
+  scriptJson?: ScriptPayload | null;
   finalVideoUrl?: string | null;
   thumbnailUrl?: string | null;
   totalCostCredits: number;
   errorMessage?: string | null;
-  scenes: any[];
-  assets: any[];
-  modelTasks: any[];
+  scenes: ProjectSceneItem[];
+  assets: ProjectAssetItem[];
+  modelTasks: ProjectModelTaskItem[];
 };
 
 type WorkerHealthPayload = {
@@ -37,7 +92,13 @@ type WorkerHealthPayload = {
   }>;
 };
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "partial_failed", "completed_clips", "needs_review"]);
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "partial_failed",
+  "completed_clips",
+  "needs_review"
+]);
 
 export function ProjectStatusView({
   initialProject
@@ -55,15 +116,17 @@ export function ProjectStatusView({
 
   const isTerminal = TERMINAL_STATUSES.has(project.status);
   const script = project.scriptJson || {};
-  const sceneClips = project.scenes.filter((scene) => scene.videoUrl);
-  const subtitleAsset = project.assets.find((asset) => asset.type === "subtitle");
+  const sceneClips = project.scenes.filter((scene: ProjectSceneItem) => scene.videoUrl);
+  const subtitleAsset = project.assets.find((asset: ProjectAssetItem) => asset.type === "subtitle");
   const hasMultipleSceneClips = sceneClips.length > 1;
-  const failedScenes = project.scenes.filter((scene) => scene.status === "failed");
+  const failedScenes = project.scenes.filter((scene: ProjectSceneItem) => scene.status === "failed");
   const reviewScenes = project.scenes.filter(
-    (scene) => scene.status === "needs_review" || scene.reviewStatus === "needs_review"
+    (scene: ProjectSceneItem) =>
+      scene.status === "needs_review" || scene.reviewStatus === "needs_review"
   );
   const allScenesCompleted =
-    project.scenes.length > 0 && project.scenes.every((scene) => scene.status === "completed");
+    project.scenes.length > 0 &&
+    project.scenes.every((scene: ProjectSceneItem) => scene.status === "completed");
   const legacyVideoReady = project.scenes.length === 0 && Boolean(project.finalVideoUrl);
   const canRenderProject = (allScenesCompleted || legacyVideoReady) && project.status !== "rendering";
   const queuedForSeconds =
@@ -87,6 +150,7 @@ export function ProjectStatusView({
     if (project.status === "rendering") return "Rendering";
     return "Generating";
   }, [project.status]);
+
   const visualBible = script.visualBible;
 
   async function refreshProject() {
@@ -97,11 +161,16 @@ export function ProjectStatusView({
         cache: "no-store"
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        setActionError("Failed to refresh project status.");
+        return;
+      }
 
       const data = await res.json();
       setProject(data.project);
       setWorkerHealth(data.workerHealth || null);
+    } catch {
+      setActionError("Failed to refresh project status.");
     } finally {
       setRefreshing(false);
     }
@@ -118,7 +187,12 @@ export function ProjectStatusView({
 
       if (res.ok) {
         await refreshProject();
+      } else {
+        const data = await res.json().catch(() => null);
+        setActionError(data?.error || "Project retry failed.");
       }
+    } catch {
+      setActionError("Project retry failed.");
     } finally {
       setRetrying(false);
     }
@@ -135,7 +209,12 @@ export function ProjectStatusView({
 
       if (res.ok) {
         await refreshProject();
+      } else {
+        const data = await res.json().catch(() => null);
+        setActionError(data?.error || "Scene retry failed.");
       }
+    } catch {
+      setActionError("Scene retry failed.");
     } finally {
       setRetryingSceneId("");
     }
@@ -156,6 +235,8 @@ export function ProjectStatusView({
         const data = await res.json().catch(() => null);
         setActionError(data?.error || "Scene approval failed.");
       }
+    } catch {
+      setActionError("Scene approval failed.");
     } finally {
       setApprovingSceneId("");
     }
@@ -176,6 +257,8 @@ export function ProjectStatusView({
         const data = await res.json().catch(() => null);
         setActionError(data?.error || "Render request failed.");
       }
+    } catch {
+      setActionError("Render request failed.");
     } finally {
       setRendering(false);
     }
@@ -301,7 +384,7 @@ export function ProjectStatusView({
         <div className="mt-6 rounded-3xl border border-line bg-panel p-5">
           <h2 className="text-2xl font-bold">Scene Timeline</h2>
           <div className="mt-5 space-y-4">
-            {project.scenes.map((scene) => (
+            {project.scenes.map((scene: ProjectSceneItem) => (
               <div key={scene.id} className="rounded-2xl border border-line bg-soft p-4">
                 <div className="flex items-center justify-between gap-4">
                   <h3 className="font-semibold">Scene {scene.sceneIndex}</h3>
@@ -430,7 +513,7 @@ export function ProjectStatusView({
         )}
         <Panel title="Assets">
           <div className="space-y-3 text-sm text-muted">
-            {project.assets.map((asset) => (
+            {project.assets.map((asset: ProjectAssetItem) => (
               <div key={asset.id} className="rounded-xl bg-soft p-3">
                 <a href={asset.url} target="_blank" rel="noreferrer">
                   {asset.type}: {asset.mimeType || "-"}
@@ -442,7 +525,7 @@ export function ProjectStatusView({
         </Panel>
         <Panel title="Model Tasks">
           <div className="space-y-3 text-sm text-muted">
-            {project.modelTasks.map((task) => (
+            {project.modelTasks.map((task: ProjectModelTaskItem) => (
               <div key={task.id} className="rounded-xl bg-soft p-3">
                 {task.taskType} · {task.provider} · {task.status}
               </div>
