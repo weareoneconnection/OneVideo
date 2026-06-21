@@ -1,0 +1,25 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    container_name: onevideo-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: onevideo
+      POSTGRES_PASSWORD: onevideo
+      POSTGRES_DB: onevideo
+    ports:
+      - "5432:5432"
+    volumes:
+      - onevideo-postgres:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    container_name: onevideo-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - onevideo-redis:/data
+volumes:
+  onevideo-postgres:
+  onevideo-redis:

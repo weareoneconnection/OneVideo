@@ -1,0 +1,13 @@
+node_modules
+node_modules.before-v04-async
+.pnpm-store
+.cache
+.next
+dist
+.env
+.env.local
+.DS_Store
+coverage
+*.log
+tsconfig.tsbuildinfo
+public/generated
