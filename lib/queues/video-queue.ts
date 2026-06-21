@@ -30,6 +30,13 @@ const globalForVideoQueues = globalThis as unknown as {
   renderQueue?: Queue;
 };
 
+function safeJobId(parts: Array<string | number | null | undefined>) {
+  return parts
+    .filter((part) => part !== null && part !== undefined && String(part).length > 0)
+    .map((part) => String(part).replace(/[^a-zA-Z0-9_-]/g, "-"))
+    .join("-");
+}
+
 export function getSceneVideoQueue() {
   if (!globalForVideoQueues.sceneVideoQueue) {
     globalForVideoQueues.sceneVideoQueue = new Queue(SCENE_VIDEO_QUEUE_NAME, {
@@ -104,7 +111,7 @@ export async function enqueueSceneVideo(
       phase: "generate"
     } satisfies SceneVideoJobData,
     {
-      jobId: `scene:${scene.id}:${Date.now()}`
+      jobId: safeJobId(["scene", scene.id, Date.now()])
     }
   );
 
@@ -160,7 +167,13 @@ export async function enqueueSceneVideoPoll(input: {
       pollAttempt
     } satisfies SceneVideoJobData,
     {
-      jobId: `scene-poll:${input.sceneId}:${input.externalTaskId}:${pollAttempt}`,
+      jobId: safeJobId([
+        "scene-poll",
+        input.sceneId,
+        input.externalTaskId,
+        pollAttempt,
+        Date.now()
+      ]),
       delay: input.delayMs || Number(process.env.PROVIDER_POLL_INTERVAL_MS || 10000)
     }
   );
@@ -208,7 +221,7 @@ export async function enqueueRenderProject(
       requestedBy
     } satisfies RenderJobData,
     {
-      jobId: `render:${projectId}:${Date.now()}`
+      jobId: safeJobId(["render", projectId, Date.now()])
     }
   );
 
