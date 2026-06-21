@@ -4,11 +4,17 @@ import { enqueueRenderProject } from "@/lib/queues/video-queue";
 
 export const runtime = "nodejs";
 
+type SceneStatusItem = {
+  id: string;
+  status: string;
+};
+
 export async function POST(
   _: Request,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params;
+
   const project = await db.project.findUnique({
     where: {
       id: projectId
@@ -18,15 +24,28 @@ export async function POST(
     }
   });
 
-  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (!project) {
+    return NextResponse.json(
+      {
+        error: "Project not found"
+      },
+      {
+        status: 404
+      }
+    );
+  }
 
-  const incompleteScenes = project.scenes.filter((scene) => scene.status !== "completed");
+  const incompleteScenes = project.scenes.filter(
+    (scene: SceneStatusItem) => scene.status !== "completed"
+  );
 
   if (incompleteScenes.length > 0) {
     return NextResponse.json(
       {
         error: "All scenes must be completed before rendering.",
-        incompleteScenes: incompleteScenes.map((scene) => scene.id)
+        incompleteScenes: incompleteScenes.map(
+          (scene: SceneStatusItem) => scene.id
+        )
       },
       {
         status: 409

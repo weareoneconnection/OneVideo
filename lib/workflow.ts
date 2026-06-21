@@ -19,6 +19,10 @@ import { createDirectorAssets } from "./director-assets";
 import { assessSceneVideoQuality, shouldBlockLowQualityScenes } from "./quality";
 import { extractSceneQaFrame } from "./video-qa";
 
+type SceneStatusItem = {
+  status: string;
+};
+
 export async function ensureDemoUser() {
   const email = "demo@onevideo.local";
 
@@ -71,10 +75,10 @@ export async function updateProjectVideoAggregate(projectId: string) {
   });
 
   const totalScenes = project.scenes.length;
-  const completedScenes = project.scenes.filter((scene) => scene.status === "completed").length;
-  const failedScenes = project.scenes.filter((scene) => scene.status === "failed").length;
-  const reviewScenes = project.scenes.filter((scene) => scene.status === "needs_review").length;
-  const activeScenes = project.scenes.filter((scene) =>
+  const completedScenes = project.scenes.filter((scene: SceneStatusItem) => scene.status === "completed").length;
+  const failedScenes = project.scenes.filter((scene: SceneStatusItem) => scene.status === "failed").length;
+  const reviewScenes = project.scenes.filter((scene: SceneStatusItem) => scene.status === "needs_review").length;
+  const activeScenes = project.scenes.filter((scene: SceneStatusItem) =>
     ["queued", "generating_video", "polling_video"].includes(scene.status)
   ).length;
 

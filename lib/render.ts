@@ -13,6 +13,16 @@ import { generateSpeech } from "./tts-provider";
 
 const execFileAsync = promisify(execFile);
 
+type RenderSceneItem = {
+  id: string;
+  sceneIndex: number;
+  durationSeconds: number;
+  voiceover: string | null;
+  storyBeat: string | null;
+  status: string;
+  videoUrl: string | null;
+};
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -103,7 +113,9 @@ export async function runRenderWorkflow(projectId: string) {
     }
   });
 
-  const completedScenes = project.scenes.filter((scene) => scene.status === "completed" && scene.videoUrl);
+  const completedScenes = project.scenes.filter(
+    (scene: RenderSceneItem) => scene.status === "completed" && scene.videoUrl
+  );
   const hasSceneTimeline = project.scenes.length > 0;
 
   if (hasSceneTimeline && completedScenes.length !== project.scenes.length) {
@@ -169,7 +181,7 @@ export async function runRenderWorkflow(projectId: string) {
   const voiceoverText =
     script.fullVoiceover ||
     [script.hook, script.body, script.cta].filter(Boolean).join(" ") ||
-    completedScenes.map((scene) => scene.voiceover).filter(Boolean).join(" ") ||
+    completedScenes.map((scene: RenderSceneItem) => scene.voiceover).filter(Boolean).join(" ") ||
     project.topic;
 
   const speech = await generateSpeech({
@@ -192,22 +204,22 @@ export async function runRenderWorkflow(projectId: string) {
       topic: project.topic
     },
     scenes: hasSceneTimeline
-      ? completedScenes.map((scene) => ({
-          id: scene.id,
-          sceneIndex: scene.sceneIndex,
-          durationSeconds: scene.durationSeconds,
-          voiceover: scene.voiceover,
-          storyBeat: scene.storyBeat
-        }))
-      : [
-          {
-            id: project.id,
-            sceneIndex: 1,
-            durationSeconds: project.durationSeconds,
-            voiceover: voiceoverText,
-            storyBeat: project.topic
-          }
-        ]
+  ? completedScenes.map((scene: RenderSceneItem) => ({
+      id: scene.id,
+      sceneIndex: scene.sceneIndex,
+      durationSeconds: scene.durationSeconds,
+      voiceover: scene.voiceover || "",
+      storyBeat: scene.storyBeat || ""
+    }))
+  : [
+      {
+        id: project.id,
+        sceneIndex: 1,
+        durationSeconds: project.durationSeconds,
+        voiceover: String(voiceoverText || ""),
+        storyBeat: project.topic || ""
+      }
+    ]
   });
 
   await db.asset.upsert({
@@ -242,7 +254,7 @@ export async function runRenderWorkflow(projectId: string) {
   });
 
   const clipSources = hasSceneTimeline
-    ? completedScenes.map((scene) => ({
+    ? completedScenes.map((scene: RenderSceneItem) => ({
         url: scene.videoUrl!,
         filename: `scene-${scene.sceneIndex}.mp4`
       }))
