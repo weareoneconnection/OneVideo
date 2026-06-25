@@ -508,7 +508,18 @@ async function createVideoTaskForProvider(
 
   if (provider === "runway") {
     const { createRunwayVideoTask } = await import("./providers/runway");
-    return createRunwayVideoTask(input);
+    try {
+      return await createRunwayVideoTask(input);
+    } catch (err) {
+      // Runway requires a real reference image (gen4_turbo). If none available,
+      // fall back to Kling which supports text-to-video without an image.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("requires a reference image")) {
+        console.warn(`Runway fallback to Kling: ${msg}`);
+        return createKlingVideoTask(input);
+      }
+      throw err;
+    }
   }
 
   if (provider === "heygen") {
