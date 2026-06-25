@@ -39,6 +39,14 @@ export function buildSrt(words: WordTimestamp[], wordsPerLine = 4): string {
   ].join("\n")).join("\n\n") + "\n";
 }
 
+// Font that supports CJK characters. Override with SUBTITLE_FONT env var.
+// Railway (Linux): install fonts-noto-cjk via nixpacks or use "Noto Sans CJK SC"
+// macOS: "PingFang SC" is built-in
+function getCjkFont(): string {
+  if (process.env.SUBTITLE_FONT) return process.env.SUBTITLE_FONT;
+  return process.platform === "darwin" ? "PingFang SC" : "Noto Sans CJK SC";
+}
+
 // ── ASS header ──
 function assHeader(style: string): string {
   return `[Script Info]
@@ -57,8 +65,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 // ── TikTok 大字幕 (白字黑描边，底部居中) ──
 function buildTikTokAss(words: WordTimestamp[]): string {
-  // Style: white, bold, 72px, thick black outline
-  const styleLine = "Style: TikTok,Arial Black,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,20,20,60,1";
+  const font = getCjkFont();
+  const styleLine = `Style: TikTok,${font},72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,2,2,20,20,60,1`;
   const header = assHeader(styleLine);
   const lines = groupIntoLines(words, 5);
   const events = lines.map(line => {
@@ -70,7 +78,8 @@ function buildTikTokAss(words: WordTimestamp[]): string {
 
 // ── Karaoke 高亮 (每个词按时序高亮) ──
 function buildKaraokeAss(words: WordTimestamp[]): string {
-  const styleDefault = "Style: KaraokeBase,Arial Black,68,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,1,2,20,20,60,1";
+  const font = getCjkFont();
+  const styleDefault = `Style: KaraokeBase,${font},68,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,1,2,20,20,60,1`;
   const header = assHeader(styleDefault);
   const lines = groupIntoLines(words, 4);
   const events = lines.map(line => {
@@ -89,7 +98,7 @@ function buildKaraokeAss(words: WordTimestamp[]): string {
 // ── Pill 胶囊 (每词独立显示，带圆角背景框) ──
 function buildPillAss(words: WordTimestamp[]): string {
   // Use BorderStyle=4 (opaque box) for pill effect
-  const styleLine = "Style: Pill,PingFang SC,64,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,1,0,0,0,100,100,4,0,4,0,0,2,20,20,60,1";
+  const styleLine = `Style: Pill,${getCjkFont()},64,&H00FFFFFF,&H000000FF,&H00000000,&HAA000000,1,0,0,0,100,100,4,0,4,0,0,2,20,20,60,1`;
   const header = assHeader(styleLine);
   // Show one word at a time
   const events = words.map(w =>
@@ -100,7 +109,7 @@ function buildPillAss(words: WordTimestamp[]): string {
 
 // ── Classic SRT-based simple style ──
 function buildClassicAss(words: WordTimestamp[]): string {
-  const styleLine = "Style: Classic,PingFang SC,52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1";
+  const styleLine = `Style: Classic,${getCjkFont()},52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1`;
   const header = assHeader(styleLine);
   const lines = groupIntoLines(words, 6);
   const events = lines.map(line => {
