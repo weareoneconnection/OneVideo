@@ -122,10 +122,12 @@ function shouldFallbackToMock() {
 
 function shouldUseImageToVideo(input: GenerateVideoInput) {
   const imageUrl = getProviderAssetUrl(input);
+  // SVG placeholders are not accepted by video providers — skip i2v if only SVG available
+  const isRealImage = Boolean(imageUrl) && !imageUrl!.endsWith(".svg") && !imageUrl!.includes("image/svg");
 
   return (
     process.env.VIDEO_PROVIDER_USE_IMAGE_TO_VIDEO === "true" &&
-    Boolean(imageUrl)
+    isRealImage
   );
 }
 
