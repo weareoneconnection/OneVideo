@@ -275,6 +275,38 @@ export async function runRenderWorkflow(projectId: string) {
     localClips.push(await downloadToFile(clip.url, filePath));
   }
 
+  // 等待背景音乐（Suno 异步生成，最多等 90s）
+  let musicLocalPath: string | null = null;
+  const refreshedProject = await db.project.findUnique({
+    where: { id: projectId },
+    select: { backgroundMusicUrl: true, musicProvider: true }
+  });
+  let musicUrl = refreshedProject?.backgroundMusicUrl;
+  const musicProvider = refreshedProject?.musicProvider;
+
+  if (musicProvider && musicProvider !== "failed" && musicProvider !== "none" && !musicUrl) {
+    console.log("Waiting for background music to finish...");
+    for (let i = 0; i < 9 && !musicUrl; i++) {
+      await new Promise((r) => setTimeout(r, 10000));
+      const p = await db.project.findUnique({
+        where: { id: projectId },
+        select: { backgroundMusicUrl: true }
+      });
+      musicUrl = p?.backgroundMusicUrl ?? undefined;
+    }
+  }
+
+  if (musicUrl) {
+    try {
+      const musicFilePath = path.join(dir, "bgmusic.mp3");
+      musicLocalPath = await downloadToFile(musicUrl, musicFilePath);
+      console.log("Background music downloaded:", musicLocalPath);
+    } catch (err) {
+      console.warn("Failed to download background music (will skip):", err);
+      musicLocalPath = null;
+    }
+  }
+
   const outputFilename = "final.mp4";
   const outputPath = path.join(dir, outputFilename);
   const ffmpegArgs = ["-y", "-hide_banner", "-loglevel", "error"];
@@ -283,30 +315,42 @@ export async function runRenderWorkflow(projectId: string) {
     ffmpegArgs.push("-i", clip);
   }
 
-  ffmpegArgs.push(
-    "-i",
-    speech.localPath,
-    "-filter_complex",
-    buildConcatFilter(localClips.length, project.aspectRatio),
-    "-map",
-    "[vout]",
-    "-map",
-    `${localClips.length}:a:0`,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "aac",
-    "-af",
-    "apad",
-    "-shortest",
-    "-movflags",
-    "+faststart",
-    outputPath
-  );
+  const voiceIdx = localClips.length;
+  ffmpegArgs.push("-i", speech.localPath);
+
+  if (musicLocalPath) {
+    const musicIdx = voiceIdx + 1;
+    const musicVolume = process.env.MUSIC_VOLUME || "0.12";
+    ffmpegArgs.push("-i", musicLocalPath);
+    ffmpegArgs.push(
+      "-filter_complex",
+      `${buildConcatFilter(localClips.length, project.aspectRatio)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      "-map", "[vout]",
+      "-map", "[aout]",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-shortest",
+      "-movflags", "+faststart",
+      outputPath
+    );
+  } else {
+    ffmpegArgs.push(
+      "-filter_complex",
+      buildConcatFilter(localClips.length, project.aspectRatio),
+      "-map", "[vout]",
+      "-map", `${voiceIdx}:a:0`,
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-af", "apad",
+      "-shortest",
+      "-movflags", "+faststart",
+      outputPath
+    );
+  }
 
   await execFileAsync(getFfmpegPath(), ffmpegArgs);
 

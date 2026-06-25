@@ -12,6 +12,7 @@ import {
   type RenderJobData,
   type SceneVideoJobData
 } from "../lib/queues/video-queue";
+import { musicWorker, MUSIC_POLL_QUEUE_NAME } from "./music-worker";
 import { runRenderWorkflow } from "../lib/render";
 import {
   runProjectWorkflow,
@@ -55,7 +56,8 @@ async function heartbeatAll() {
   await Promise.all([
     heartbeat(PROJECT_WORKFLOW_QUEUE_NAME),
     heartbeat(SCENE_VIDEO_QUEUE_NAME),
-    heartbeat(RENDER_QUEUE_NAME)
+    heartbeat(RENDER_QUEUE_NAME),
+    heartbeat(MUSIC_POLL_QUEUE_NAME)
   ]);
 }
 
@@ -240,7 +242,8 @@ async function shutdown() {
   await Promise.all([
     projectWorker.close(),
     sceneWorker.close(),
-    renderWorker.close()
+    renderWorker.close(),
+    musicWorker.close()
   ]);
   await closeQueueRedisConnection();
   await db.$disconnect();
@@ -257,7 +260,8 @@ process.on("SIGTERM", () => {
 void Promise.all([
   projectWorker.waitUntilReady(),
   sceneWorker.waitUntilReady(),
-  renderWorker.waitUntilReady()
+  renderWorker.waitUntilReady(),
+  musicWorker.waitUntilReady()
 ])
   .then(async () => {
     await heartbeatAll().catch((error) => {

@@ -59,7 +59,13 @@ model Project {
   aspectRatio     String
   durationSeconds Int
   style           String?
-  voiceProfileId  String?
+  voiceProfileId     String?
+  avatarId           String?
+  avatarEnabled      Boolean  @default(false)
+  backgroundMusicUrl String?
+  musicPrompt        String?
+  musicProvider      String?
+  musicJobId         String?
   status          String   @default("created")
   progress        Int      @default(0)
   workflowJobId   String?

@@ -296,6 +296,39 @@ export async function runProjectWorkflow(projectId: string) {
       }))
     });
 
+    // 启动背景音乐生成（与 scene 视频并行）
+    const musicProvider = process.env.MUSIC_PROVIDER;
+    if (musicProvider && musicProvider !== "none") {
+      try {
+        const { buildMusicPrompt, getFreesoundFallbackUrl, createSunoMusic } = await import("./providers/suno");
+        const musicPrompt = buildMusicPrompt({
+          topic: project.topic,
+          style: project.style,
+          platform: project.platform,
+          durationSeconds: project.durationSeconds,
+          language: project.language
+        });
+        if (musicProvider === "freesound") {
+          const url = getFreesoundFallbackUrl(project.style);
+          await db.project.update({
+            where: { id: projectId },
+            data: { backgroundMusicUrl: url, musicProvider: "freesound", musicPrompt }
+          });
+          console.log("Freesound background music set:", { projectId, url });
+        } else if (musicProvider === "suno") {
+          const { jobId } = await createSunoMusic(musicPrompt);
+          await db.project.update({
+            where: { id: projectId },
+            data: { musicJobId: jobId, musicProvider: "suno", musicPrompt }
+          });
+          const { enqueueMusicPoll } = await import("./queues/music-queue");
+          await enqueueMusicPoll(projectId, jobId, "suno");
+        }
+      } catch (musicErr) {
+        console.warn("Background music setup failed (non-fatal):", musicErr);
+      }
+    }
+
     const staggerMs = Number(process.env.SCENE_STAGGER_MS || 5000);
     for (let i = 0; i < createdScenes.length; i++) {
       await enqueueSceneVideo(createdScenes[i].id, "workflow", {

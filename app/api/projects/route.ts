@@ -13,7 +13,11 @@ const createProjectSchema = z.object({
   aspectRatio: z.enum(["9:16", "16:9", "1:1"]).default("9:16"),
   durationSeconds: z.coerce.number().int().min(15).max(60).default(45),
   style: z.string().optional(),
-  voiceProfileId: z.string().optional()
+  voiceProfileId: z.string().optional(),
+  avatarId: z.string().optional(),
+  avatarEnabled: z.boolean().optional(),
+  musicEnabled: z.boolean().optional(),
+  musicPrompt: z.string().optional()
 });
 
 export async function GET() {
@@ -40,6 +44,9 @@ export async function POST(req: NextRequest) {
       durationSeconds: body.durationSeconds,
       style: body.style || "cinematic, realistic, commercial short-video style",
       voiceProfileId: body.voiceProfileId || null,
+      avatarId: body.avatarEnabled && body.avatarId ? body.avatarId : null,
+      avatarEnabled: body.avatarEnabled && !!body.avatarId,
+      musicPrompt: body.musicEnabled && body.musicPrompt ? body.musicPrompt : null,
       status: "created",
       progress: 0
     }

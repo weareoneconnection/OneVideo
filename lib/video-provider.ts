@@ -485,6 +485,22 @@ async function createVideoTaskForProvider(
     return createRunwayVideoTask(input);
   }
 
+  if (provider === "heygen") {
+    const { createHeyGenVideoTask } = await import("./providers/heygen");
+    const { db } = await import("./db");
+    const project = await db.project.findUnique({
+      where: { id: input.projectId },
+      select: { avatarId: true }
+    });
+    const avatarId = project?.avatarId;
+    if (!avatarId) throw new Error("HeyGen requires avatarId on project");
+    const scene = await db.scene.findUnique({
+      where: { id: input.sceneId },
+      select: { voiceover: true }
+    });
+    return createHeyGenVideoTask({ ...input, avatarId, voiceover: scene?.voiceover ?? undefined });
+  }
+
   // mock / fallback
   return {
     provider: "mock-provider",
@@ -536,6 +552,11 @@ export async function pollVideoTaskForScene(
   if (input.provider === "runway") {
     const { pollRunwayVideoTask } = await import("./providers/runway");
     return pollRunwayVideoTask(input);
+  }
+
+  if (input.provider === "heygen") {
+    const { pollHeyGenVideoTask } = await import("./providers/heygen");
+    return pollHeyGenVideoTask(input);
   }
 
   if (input.provider !== "kling") {
