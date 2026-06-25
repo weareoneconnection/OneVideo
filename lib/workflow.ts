@@ -696,8 +696,13 @@ export async function runSceneVideoPollWorkflow(jobData: SceneVideoJobData) {
   const generationType: VideoGenerationType =
     jobData.generationType || (scene.firstFrameUrl ? "image_to_video" : "text_to_video");
   const pollAttempt = jobData.pollAttempt || 1;
+  // Use provider-specific limits so PROVIDER_POLL_ATTEMPTS doesn't silently cap Kling
   const maxPollAttempts = Number(
-    process.env.PROVIDER_POLL_ATTEMPTS || process.env.KLING_POLL_ATTEMPTS || 60
+    (provider === "kling" && process.env.KLING_POLL_ATTEMPTS)
+      ? process.env.KLING_POLL_ATTEMPTS
+      : (provider === "runway" && process.env.RUNWAY_POLL_ATTEMPTS)
+        ? process.env.RUNWAY_POLL_ATTEMPTS
+        : process.env.PROVIDER_POLL_ATTEMPTS || 60
   );
   const taskInput = {
     prompt: scene.videoPrompt || scene.visualPrompt,

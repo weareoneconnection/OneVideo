@@ -176,7 +176,13 @@ export async function enqueueSceneVideoPoll(input: {
         pollAttempt,
         Date.now()
       ]),
-      delay: input.delayMs || Number(process.env.PROVIDER_POLL_INTERVAL_MS || 10000)
+      delay: input.delayMs || Number(
+        (input.provider === "kling" && process.env.KLING_POLL_INTERVAL_MS)
+          ? process.env.KLING_POLL_INTERVAL_MS
+          : (input.provider === "runway" && process.env.RUNWAY_POLL_INTERVAL_MS)
+            ? process.env.RUNWAY_POLL_INTERVAL_MS
+            : process.env.PROVIDER_POLL_INTERVAL_MS || 10000
+      )
     }
   );
 
