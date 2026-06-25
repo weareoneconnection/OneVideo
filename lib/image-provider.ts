@@ -201,7 +201,8 @@ export async function generateImage(
       return await generateWithOpenAICompatible(input);
     } catch (error) {
       if (!shouldFallbackToPlaceholder()) throw error;
-      console.error("Image generation failed. Falling back to placeholder image.", error);
+      // Log the real error so it's visible in Railway logs
+      console.error("[image] DALL-E failed — falling back to SVG placeholder. Fix OPENAI_API_KEY or set IMAGE_PROVIDER_FALLBACK_TO_PLACEHOLDER=false to surface the error.", error);
     }
   }
 

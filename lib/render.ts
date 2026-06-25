@@ -119,7 +119,15 @@ export async function runRenderWorkflow(projectId: string) {
   });
 
   const completedScenes = project.scenes.filter(
-    (scene: RenderSceneItem) => scene.status === "completed" && scene.videoUrl
+    (scene: RenderSceneItem) =>
+      scene.status === "completed" &&
+      scene.videoUrl &&
+      // SVG placeholders are not real video clips — block them from entering render
+      !scene.videoUrl.endsWith(".svg") &&
+      !scene.videoUrl.includes("image/svg") &&
+      !scene.videoUrl.includes("director-reference") &&
+      !scene.videoUrl.includes("first-frame") &&
+      !scene.videoUrl.includes("placeholder")
   );
   const hasSceneTimeline = project.scenes.length > 0;
 
