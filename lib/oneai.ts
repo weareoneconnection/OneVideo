@@ -503,6 +503,158 @@ export class OneAIClient {
   }
 }
 
+// ─── Hook 引擎类型 ────────────────────────────────────────────────────────────
+
+export type HookOption = {
+  id: string;
+  text: string;
+  strategy: string;
+  reasoning: string;
+  estimatedRetention: number;
+};
+
+export type VariantConfig = {
+  variantIndex: number;
+  variantLabel: string;
+  style: string;
+  selectedHook?: string;
+  durationSeconds?: number;
+  reasoning: string;
+};
+
+// ─── generateHookOptions ─────────────────────────────────────────────────────
+
+export async function generateHookOptions(input: {
+  topic: string;
+  platform: string;
+  language: string;
+  style?: string;
+  durationSeconds: number;
+}): Promise<HookOption[]> {
+  const isChinese = input.language === "zh";
+  const client = new OneAIClient();
+  const fallback: HookOption[] = [
+    { id: "hook_1", text: isChinese ? "你知道吗，90%的人都做错了这件事？" : "Did you know 90% of people get this wrong?", strategy: isChinese ? "好奇缺口" : "Curiosity Gap", reasoning: isChinese ? "触发好奇心，驱动完播" : "Triggers curiosity to boost retention", estimatedRetention: 72 },
+    { id: "hook_2", text: isChinese ? `我曾经一无所有，现在靠${input.topic}月入六位数` : `I went from nothing to six figures with ${input.topic}`, strategy: isChinese ? "反差对比" : "Contrast", reasoning: isChinese ? "强反差制造张力" : "Strong contrast creates tension", estimatedRetention: 68 },
+    { id: "hook_3", text: isChinese ? "如果你还没试过这个方法，你正在浪费时间" : "If you haven't tried this method, you're wasting time", strategy: isChinese ? "痛点共鸣" : "Pain Point", reasoning: isChinese ? "直击痛点，引发共鸣" : "Resonates with audience pain", estimatedRetention: 65 }
+  ];
+
+  return client.chatJSON<HookOption[]>({
+    model: getOneAIModel(),
+    system: `You are a viral short-video hook specialist who analyzes TikTok/Douyin algorithm data.
+Return strict valid JSON array only. No markdown. No explanations.
+Array of 3 objects, each: { "id": "hook_1"|"hook_2"|"hook_3", "text": string, "strategy": string, "reasoning": string, "estimatedRetention": number(0-100) }`,
+    prompt: `Generate 3 viral hook options for a short video.
+Topic: ${input.topic}
+Platform: ${input.platform}
+Language: ${isChinese ? "Chinese (Mandarin)" : "English"}
+Style: ${input.style || "authentic, relatable"}
+Duration: ${input.durationSeconds}s
+
+Rules:
+- Each hook must be ≤15 words, spoken in first 3 seconds
+- 3 different strategies: one "好奇缺口/Curiosity Gap", one "反差对比/Contrast", one "痛点共鸣/Pain Point"
+- strategy field: use Chinese label if language=zh, else English
+- reasoning: explain WHY this hook retains viewers (1 sentence)
+- estimatedRetention: realistic score based on platform data
+- text must be in ${isChinese ? "Chinese" : "English"}
+Return JSON array only.`,
+    fallback
+  });
+}
+
+// ─── generateVariants ─────────────────────────────────────────────────────────
+
+export async function generateVariants(input: {
+  topic: string;
+  platform: string;
+  language: string;
+  baseStyle: string;
+  durationSeconds: number;
+  variantCount: number;
+  dimension: "style" | "hook" | "duration";
+}): Promise<VariantConfig[]> {
+  const isChinese = input.language === "zh";
+  const client = new OneAIClient();
+
+  const styleLabels = isChinese
+    ? ["激情励志风", "冷静干货风", "故事叙述风", "悬疑反转风", "幽默吐槽风"]
+    : ["Motivational", "Educational", "Storytelling", "Mystery", "Humor"];
+  const hookExamples = isChinese
+    ? ["你敢相信吗？", "这个方法改变了我的人生", "我犯了一个大错误", "90%的人都不知道", "停！先看这个"]
+    : ["You won't believe this", "This changed my life", "I made a huge mistake", "90% don't know this", "Stop! Watch this first"];
+  const durations = [15, 30, 45, 60].filter((d) => d !== input.durationSeconds).slice(0, input.variantCount - 1);
+
+  const fallback: VariantConfig[] = Array.from({ length: input.variantCount }, (_, i) => ({
+    variantIndex: i + 1,
+    variantLabel: input.dimension === "style" ? styleLabels[i] || `Variant ${i + 1}` : input.dimension === "hook" ? (hookExamples[i] || `Hook ${i + 1}`) : `${i === 0 ? input.durationSeconds : durations[i - 1]}s`,
+    style: input.dimension === "style" ? `${styleLabels[i]}, ${input.baseStyle}` : input.baseStyle,
+    selectedHook: input.dimension === "hook" ? hookExamples[i] : undefined,
+    durationSeconds: input.dimension === "duration" ? (i === 0 ? input.durationSeconds : durations[i - 1]) : undefined,
+    reasoning: `Variant ${i + 1} tests a different ${input.dimension}`
+  }));
+
+  return client.chatJSON<VariantConfig[]>({
+    model: getOneAIModel(),
+    system: `You are an A/B testing expert for short-form video content.
+Return strict valid JSON array only. No markdown.
+Array of ${input.variantCount} objects: { "variantIndex": number, "variantLabel": string, "style": string, "selectedHook"?: string, "durationSeconds"?: number, "reasoning": string }`,
+    prompt: `Create ${input.variantCount} A/B test variants for a short video.
+Topic: ${input.topic}
+Platform: ${input.platform}
+Language: ${isChinese ? "Chinese" : "English"}
+Base style: ${input.baseStyle}
+Base duration: ${input.durationSeconds}s
+Test dimension: ${input.dimension}
+
+Rules:
+- variantLabel: short memorable name for this variant (≤4 words, in ${isChinese ? "Chinese" : "English"})
+- style: full style description for this variant (keep topic and platform in mind)
+- selectedHook: only include if dimension="hook", must be ≤15 words in target language
+- durationSeconds: only include if dimension="duration", pick from [15, 30, 45, 60]
+- reasoning: one sentence why this variant is worth testing
+- Make variants genuinely different from each other
+Return JSON array only.`,
+    fallback
+  });
+}
+
+// ─── scoreProjectVariant ─────────────────────────────────────────────────────
+
+export async function scoreProjectVariant(input: {
+  projectId: string;
+  topic: string;
+  hook: string;
+  body: string;
+  variantLabel?: string;
+  platform: string;
+  language: string;
+}): Promise<number> {
+  const client = new OneAIClient();
+  const result = await client.chatJSON<{ score: number; reasoning: string }>({
+    model: getOneAIModel(),
+    system: `You are a short-video quality scorer. Return JSON only: { "score": number(0-100), "reasoning": string }`,
+    prompt: `Score this short video script for viral potential on ${input.platform}.
+Topic: ${input.topic}
+Hook (first 3s): ${input.hook}
+Body: ${input.body}
+Variant: ${input.variantLabel || "default"}
+Language: ${input.language}
+
+Scoring criteria (0-100):
+- Hook strength (40%): curiosity, contrast, emotional pull
+- Story arc (30%): tension, transformation, resolution
+- Platform fit (20%): style matches ${input.platform} algorithm preferences
+- CTA effectiveness (10%): comment/share invitation
+
+Return JSON only.`,
+    fallback: { score: 60, reasoning: "Default score" }
+  });
+  return Math.max(0, Math.min(100, Math.round(result.score)));
+}
+
+// ─── generateScript ───────────────────────────────────────────────────────────
+
 export async function generateScript(input: {
   topic: string;
   platform: string;
@@ -510,6 +662,7 @@ export async function generateScript(input: {
   durationSeconds: number;
   aspectRatio: string;
   style?: string;
+  selectedHook?: string;
 }): Promise<ShortVideoScript> {
   const isChinese = input.language === "zh" || input.language === "Chinese";
 
@@ -576,7 +729,7 @@ Requirements:
 - Aspect ratio: ${input.aspectRatio}
 - Style: ${input.style || "cinematic commercial short video"}
 - Topic: ${input.topic}
-
+${input.selectedHook ? `\nIMPORTANT: The video MUST open with this EXACT hook in the first 3 seconds (put it in the "hook" field verbatim):\n"${input.selectedHook}"\nDo NOT change or paraphrase it.\n` : ""}
 Writing rules:
 - The first 3 seconds must have a strong hook.
 - The script must have contrast, tension and transformation.

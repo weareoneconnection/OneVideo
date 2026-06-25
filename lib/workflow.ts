@@ -190,7 +190,8 @@ export async function runProjectWorkflow(projectId: string) {
       language: project.language,
       durationSeconds: project.durationSeconds,
       aspectRatio: project.aspectRatio,
-      style: project.style || undefined
+      style: project.style || undefined,
+      selectedHook: (project as any).selectedHook ?? undefined
     });
 
     await db.project.update({

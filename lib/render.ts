@@ -459,10 +459,8 @@ export async function runRenderWorkflow(projectId: string) {
     console.warn("积分扣除失败（不阻断完成）:", err);
   }
 
-  return db.project.update({
-    where: {
-      id: projectId
-    },
+  const completed = await db.project.update({
+    where: { id: projectId },
     data: {
       status: "completed",
       progress: 100,
@@ -475,4 +473,51 @@ export async function runRenderWorkflow(projectId: string) {
       totalCostCredits
     }
   });
+
+  // A/B 批量：AI 评分 + 更新 batch winner（非阻断）
+  if ((project as any).batchId) {
+    void (async () => {
+      try {
+        const { scoreProjectVariant } = await import("./oneai");
+        const script: any = project.scriptJson || {};
+        const score = await scoreProjectVariant({
+          projectId,
+          topic: project.topic,
+          hook: script.hook || "",
+          body: script.body || "",
+          variantLabel: (project as any).variantLabel || undefined,
+          platform: project.platform,
+          language: project.language
+        });
+
+        await db.project.update({ where: { id: projectId }, data: { aiScore: score } });
+
+        // 检查同批次是否所有项目都已完成
+        const batchId = (project as any).batchId as string;
+        const batchProjects = await db.project.findMany({
+          where: { batchId },
+          select: { id: true, status: true, aiScore: true }
+        });
+
+        const allDone = batchProjects.every((p) => p.status === "completed" || p.status === "failed");
+        if (allDone) {
+          const winner = batchProjects
+            .filter((p) => p.aiScore !== null)
+            .sort((a, b) => (b.aiScore ?? 0) - (a.aiScore ?? 0))[0];
+          if (winner) {
+            await db.project.update({ where: { id: winner.id }, data: { isWinner: true } });
+            await db.projectBatch.update({
+              where: { id: batchId },
+              data: { status: "completed", winnerProjectId: winner.id }
+            });
+            console.log(`Batch ${batchId} complete. Winner: ${winner.id} (score: ${winner.aiScore})`);
+          }
+        }
+      } catch (err) {
+        console.warn("AI scoring failed (non-fatal):", err);
+      }
+    })();
+  }
+
+  return completed;
 }

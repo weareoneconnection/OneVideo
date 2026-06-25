@@ -22,6 +22,7 @@ model User {
   credits       CreditAccount?
   ledger        CreditLedger[]
   voiceProfiles VoiceProfile[]
+  batches       ProjectBatch[]
 }
 
 model CreditAccount {
@@ -66,6 +67,14 @@ model Project {
   musicPrompt        String?
   musicProvider      String?
   musicJobId         String?
+  selectedHook       String?
+  hookStrategy       String?
+  hookOptions        Json?
+  batchId            String?
+  variantIndex       Int?
+  variantLabel       String?
+  aiScore            Int?
+  isWinner           Boolean  @default(false)
   status          String   @default("created")
   progress        Int      @default(0)
   workflowJobId   String?
@@ -87,6 +96,7 @@ model Project {
 
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   voiceProfile VoiceProfile?  @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  batch        ProjectBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
   scenes       Scene[]
   assets       Asset[]
   modelTasks   ModelTask[]
@@ -178,6 +188,21 @@ model ModelTask {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   scene   Scene?  @relation(fields: [sceneId], references: [id], onDelete: SetNull)
+}
+
+model ProjectBatch {
+  id              String   @id @default(uuid())
+  userId          String
+  topic           String
+  variantCount    Int
+  variantDimension String  @default("style")
+  status          String   @default("running")
+  winnerProjectId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
 }
 
 model Template {

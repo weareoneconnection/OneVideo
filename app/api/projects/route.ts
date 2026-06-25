@@ -17,7 +17,10 @@ const createProjectSchema = z.object({
   avatarId: z.string().optional(),
   avatarEnabled: z.boolean().optional(),
   musicEnabled: z.boolean().optional(),
-  musicPrompt: z.string().optional()
+  musicPrompt: z.string().optional(),
+  selectedHook: z.string().optional(),
+  hookStrategy: z.string().optional(),
+  hookOptions: z.any().optional()
 });
 
 export async function GET() {
@@ -47,6 +50,9 @@ export async function POST(req: NextRequest) {
       avatarId: body.avatarEnabled && body.avatarId ? body.avatarId : null,
       avatarEnabled: body.avatarEnabled && !!body.avatarId,
       musicPrompt: body.musicEnabled && body.musicPrompt ? body.musicPrompt : null,
+      selectedHook: body.selectedHook || null,
+      hookStrategy: body.hookStrategy || null,
+      hookOptions: body.hookOptions || null,
       status: "created",
       progress: 0
     }
