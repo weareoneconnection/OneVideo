@@ -20,7 +20,9 @@ const createProjectSchema = z.object({
   musicPrompt: z.string().optional(),
   selectedHook: z.string().optional(),
   hookStrategy: z.string().optional(),
-  hookOptions: z.any().optional()
+  hookOptions: z.any().optional(),
+  subtitleEnabled: z.boolean().optional(),
+  subtitleStyle: z.enum(["tiktok", "karaoke", "pill", "classic", "none"]).optional()
 });
 
 export async function GET() {
@@ -53,6 +55,8 @@ export async function POST(req: NextRequest) {
       selectedHook: body.selectedHook || null,
       hookStrategy: body.hookStrategy || null,
       hookOptions: body.hookOptions || null,
+      subtitleEnabled: body.subtitleEnabled !== false,
+      subtitleStyle: body.subtitleStyle || "tiktok",
       status: "created",
       progress: 0
     }

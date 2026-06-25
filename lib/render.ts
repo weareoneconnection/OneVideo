@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { copyFile, stat } from "node:fs/promises";
+import { copyFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -10,6 +10,8 @@ import { ensureProjectPublicDir, getProjectPublicUrl } from "./file-storage";
 import { createPackagingAssets } from "./packaging";
 import { publishProjectFile } from "./storage-provider";
 import { generateSpeech } from "./tts-provider";
+import { transcribeAudio, estimateWordTimestamps } from "./whisper";
+import { buildSubtitleFile, getSubtitleBurnFilter, type SubtitleStyle } from "./subtitle-renderer";
 
 const execFileAsync = promisify(execFile);
 
@@ -354,9 +356,65 @@ export async function runRenderWorkflow(projectId: string) {
 
   await execFileAsync(getFfmpegPath(), ffmpegArgs);
 
-  // 可选：将字幕烧录进视频
-  const burnSubtitles = process.env.SUBTITLE_BURN === "true";
-  if (burnSubtitles && packaging.srtLocalPath) {
+  // 智能字幕：Whisper 转录 + 爆款样式烧录
+  const subtitleStyle = ((project as any).subtitleStyle || "tiktok") as SubtitleStyle;
+  const subtitleEnabled = (project as any).subtitleEnabled !== false;
+  const burnSubtitlesLegacy = process.env.SUBTITLE_BURN === "true";
+
+  if (subtitleEnabled && subtitleStyle !== "none") {
+    try {
+      console.log(`[subtitle] Transcribing with Whisper (style: ${subtitleStyle})...`);
+
+      // 尝试 Whisper 精准转录，失败则 fallback 到均匀估算
+      let wordTimestamps;
+      try {
+        const result = await transcribeAudio(speech.localPath, project.language);
+        wordTimestamps = result.words.length > 0 ? result.words : estimateWordTimestamps(voiceoverText, project.durationSeconds);
+        console.log(`[subtitle] Whisper got ${result.words.length} words`);
+      } catch (whisperErr) {
+        console.warn("[subtitle] Whisper failed, using estimated timestamps:", whisperErr);
+        wordTimestamps = estimateWordTimestamps(voiceoverText, project.durationSeconds);
+      }
+
+      // 生成字幕文件 (ASS 或 SRT)
+      const { content: subtitleContent, ext } = buildSubtitleFile(wordTimestamps, subtitleStyle);
+      const subtitleFilename = `subtitles-smart.${ext}`;
+      const subtitleLocalPath = path.join(dir, subtitleFilename);
+      await writeFile(subtitleLocalPath, subtitleContent, "utf8");
+
+      // 上传字幕文件
+      const publishedSub = await publishProjectFile({
+        projectId,
+        filename: subtitleFilename,
+        localPath: subtitleLocalPath,
+        localUrl: getProjectPublicUrl(projectId, subtitleFilename),
+        contentType: ext === "ass" ? "text/plain" : "text/plain"
+      });
+      await db.project.update({ where: { id: projectId }, data: { whisperSrtUrl: publishedSub.url } });
+
+      // 烧录字幕
+      const burnedFilename = "final-subtitled.mp4";
+      const burnedPath = path.join(dir, burnedFilename);
+      const vfFilter = getSubtitleBurnFilter(subtitleLocalPath, subtitleStyle);
+      const burnArgs = [
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-i", outputPath,
+        "-vf", vfFilter,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-c:a", "copy",
+        burnedPath
+      ];
+      await execFileAsync(getFfmpegPath(), burnArgs);
+      const burnedSize = await getFileSize(burnedPath).catch(() => null);
+      if (burnedSize && burnedSize > 0) {
+        await rename(burnedPath, outputPath);
+        console.log(`[subtitle] Burned subtitles (style: ${subtitleStyle}) into final video`);
+      }
+    } catch (subtitleErr) {
+      console.warn("[subtitle] Subtitle burn failed (non-fatal, using video without subtitles):", subtitleErr);
+    }
+  } else if (burnSubtitlesLegacy && packaging.srtLocalPath) {
+    // Legacy fallback: SUBTITLE_BURN=true 旧行为
     const burnedFilename = "final-subtitled.mp4";
     const burnedPath = path.join(dir, burnedFilename);
     const fontSize = process.env.SUBTITLE_FONT_SIZE || "18";
@@ -368,12 +426,10 @@ export async function runRenderWorkflow(projectId: string) {
       burnedPath
     ];
     await execFileAsync(getFfmpegPath(), burnArgs);
-    // 替换 outputPath 使后续上传烧录版本
-    ffmpegArgs; // no-op reference to avoid lint
     const burnedSize = await getFileSize(burnedPath).catch(() => null);
     if (burnedSize && burnedSize > 0) {
-      const fs = await import("node:fs/promises");
-      await fs.rename(burnedPath, outputPath);
+      const fsp = await import("node:fs/promises");
+      await fsp.rename(burnedPath, outputPath);
     }
   }
 

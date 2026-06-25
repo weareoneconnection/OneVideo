@@ -76,6 +76,9 @@ model Project {
   variantLabel       String?
   aiScore            Int?
   isWinner           Boolean  @default(false)
+  subtitleStyle      String   @default("tiktok")
+  subtitleEnabled    Boolean  @default(true)
+  whisperSrtUrl      String?
   status          String   @default("created")
   progress        Int      @default(0)
   workflowJobId   String?

@@ -32,6 +32,10 @@ export function CreateForm() {
   const [variantCount, setVariantCount] = useState(3);
   const [variantDimension, setVariantDimension] = useState<"style" | "hook" | "duration">("style");
 
+  // 智能字幕
+  const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+  const [subtitleStyle, setSubtitleStyle] = useState<"tiktok" | "karaoke" | "pill" | "classic" | "none">("tiktok");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -102,7 +106,9 @@ export function CreateForm() {
             musicPrompt: musicEnabled && musicPrompt ? musicPrompt : undefined,
             selectedHook: selectedHook?.text,
             hookStrategy: selectedHook?.strategy,
-            hookOptions: hooks.length > 0 ? hooks : undefined
+            hookOptions: hooks.length > 0 ? hooks : undefined,
+            subtitleEnabled,
+            subtitleStyle
           })
         });
         const data = await res.json();
@@ -259,6 +265,32 @@ export function CreateForm() {
                 <option value="duration">时长测试</option>
               </select>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* 智能字幕 */}
+      <div className="mt-3 rounded-2xl border border-line bg-soft/50 p-4">
+        <label className="flex cursor-pointer items-center gap-3">
+          <input type="checkbox" checked={subtitleEnabled} onChange={(e) => { setSubtitleEnabled(e.target.checked); if (!e.target.checked) setSubtitleStyle("none"); else setSubtitleStyle("tiktok"); }} className="h-4 w-4 rounded" />
+          <span className="text-sm font-medium">智能字幕（Whisper 精准时间轴）</span>
+          <span className="ml-auto rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-400">完播率 +20%</span>
+        </label>
+        {subtitleEnabled && (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(["tiktok", "karaoke", "pill", "classic"] as const).map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSubtitleStyle(s)}
+                className={`rounded-xl border px-3 py-2 text-xs font-medium transition-all ${subtitleStyle === s ? "border-sky-400 bg-sky-500/15 text-sky-300" : "border-line bg-panel text-muted hover:border-sky-500/40"}`}
+              >
+                {s === "tiktok" && "🔥 TikTok 大字幕"}
+                {s === "karaoke" && "🎤 卡拉OK 高亮"}
+                {s === "pill" && "💊 胶囊逐词"}
+                {s === "classic" && "📄 经典白字"}
+              </button>
+            ))}
           </div>
         )}
       </div>
