@@ -376,9 +376,12 @@ async function createKlingVideoTask(
       : "/v1/videos/text2video"
   }`;
 
+  // Kling max prompt length is 2500 chars; truncate to avoid 400s
+  const klingPrompt = input.prompt.slice(0, 2500);
+
   const requestBody: Record<string, unknown> = {
     model,
-    prompt: input.prompt,
+    prompt: klingPrompt,
     duration: normalizeDuration(input.durationSeconds),
     aspect_ratio: normalizeAspectRatio(input.aspectRatio),
     mode
@@ -433,7 +436,7 @@ async function createKlingVideoTask(
 
   if (!createRes!.ok) {
     throw new VideoProviderError(
-      `Kling create video failed: HTTP ${createRes!.status} ${createRes!.statusText}`,
+      `Kling create video failed: HTTP ${createRes!.status} ${createRes!.statusText} — ${createText!.slice(0, 300)}`,
       {
         provider: "kling",
         model,
