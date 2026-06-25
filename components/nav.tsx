@@ -16,7 +16,7 @@ export function Nav() {
           <Link href="/dashboard/projects">Projects</Link>
           <Link href="/dashboard/voices">Voices</Link>
           <Link href="/dashboard/billing">Billing</Link>
-          <Link href="/templates">Templates</Link>
+          <Link href="/dashboard/settings">设置</Link>
           {userId ? (
             <div className="flex items-center gap-3">
               <UserButton />

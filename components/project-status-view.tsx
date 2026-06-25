@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { StatusPill } from "./status-pill";
+import { PublishModal } from "./publish-modal";
 
 type VisualBiblePayload = {
   protagonist?: string;
@@ -113,6 +114,7 @@ export function ProjectStatusView({
   const [actionError, setActionError] = useState("");
   const [retryingSceneId, setRetryingSceneId] = useState("");
   const [approvingSceneId, setApprovingSceneId] = useState("");
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
 
   const isTerminal = TERMINAL_STATUSES.has(project.status);
   const script = project.scriptJson || {};
@@ -363,7 +365,26 @@ export function ProjectStatusView({
           </div>
 
           {project.finalVideoUrl && (
-            <div className="mt-6 overflow-hidden rounded-2xl bg-black">
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-muted">最终视频</span>
+                <div className="flex gap-2">
+                  <a
+                    href={project.finalVideoUrl}
+                    download
+                    className="rounded-xl border border-line bg-soft px-4 py-2 text-sm hover:border-zinc-400 transition-colors"
+                  >
+                    下载
+                  </a>
+                  <button
+                    onClick={() => setPublishModalOpen(true)}
+                    className="rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-colors font-semibold"
+                  >
+                    🚀 一键发布
+                  </button>
+                </div>
+              </div>
+            <div className="overflow-hidden rounded-2xl bg-black">
               <video
                 className="max-h-[680px] w-full object-contain"
                 src={project.finalVideoUrl}
@@ -381,7 +402,16 @@ export function ProjectStatusView({
                 )}
               </video>
             </div>
+            </div>
           )}
+
+          <PublishModal
+            projectId={project.id}
+            projectTitle={project.title}
+            projectTopic={project.topic}
+            isOpen={publishModalOpen}
+            onClose={() => setPublishModalOpen(false)}
+          />
 
           {!project.finalVideoUrl && hasMultipleSceneClips && (
             <p className="mt-6 rounded-2xl border border-line bg-soft p-4 text-sm text-muted">
