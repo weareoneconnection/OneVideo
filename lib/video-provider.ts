@@ -375,25 +375,44 @@ async function createKlingVideoTask(
     promptPreview: input.prompt.slice(0, 160)
   });
 
-  const createRes = await fetch(createUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(requestBody)
-  });
+  const maxRetries = Number(process.env.KLING_RATE_LIMIT_RETRIES || 4);
+  const baseRetryDelayMs = Number(process.env.KLING_RATE_LIMIT_DELAY_MS || 30000);
 
-  const createText = await createRes.text();
+  let createRes!: Response;
+  let createText!: string;
 
-  if (!createRes.ok) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    createRes = await fetch(createUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    createText = await createRes.text();
+
+    if (createRes.status !== 429) break;
+
+    if (attempt < maxRetries) {
+      const retryAfterHeader = createRes.headers.get("Retry-After");
+      const waitMs = retryAfterHeader
+        ? Number(retryAfterHeader) * 1000
+        : baseRetryDelayMs * Math.pow(2, attempt);
+      console.warn(`Kling 429 rate limit, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await sleep(waitMs);
+    }
+  }
+
+  if (!createRes!.ok) {
     throw new VideoProviderError(
-      `Kling create video failed: HTTP ${createRes.status} ${createRes.statusText}`,
+      `Kling create video failed: HTTP ${createRes!.status} ${createRes!.statusText}`,
       {
         provider: "kling",
         model,
         raw: {
-          body: createText,
+          body: createText!,
           createUrl
         }
       }
@@ -403,7 +422,7 @@ async function createKlingVideoTask(
   let createData: any;
 
   try {
-    createData = JSON.parse(createText);
+    createData = JSON.parse(createText!);
   } catch (error) {
     throw new VideoProviderError("Kling create response is not JSON", {
       provider: "kling",
