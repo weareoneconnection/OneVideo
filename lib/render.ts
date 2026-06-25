@@ -306,6 +306,29 @@ export async function runRenderWorkflow(projectId: string) {
 
   await execFileAsync(getFfmpegPath(), ffmpegArgs);
 
+  // 可选：将字幕烧录进视频
+  const burnSubtitles = process.env.SUBTITLE_BURN === "true";
+  if (burnSubtitles && packaging.srtLocalPath) {
+    const burnedFilename = "final-subtitled.mp4";
+    const burnedPath = path.join(dir, burnedFilename);
+    const fontSize = process.env.SUBTITLE_FONT_SIZE || "18";
+    const burnArgs = [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-i", outputPath,
+      "-vf", `subtitles='${packaging.srtLocalPath.replace(/'/g, "\\'")}':force_style='FontSize=${fontSize},Alignment=2,MarginV=30'`,
+      "-c:a", "copy",
+      burnedPath
+    ];
+    await execFileAsync(getFfmpegPath(), burnArgs);
+    // 替换 outputPath 使后续上传烧录版本
+    ffmpegArgs; // no-op reference to avoid lint
+    const burnedSize = await getFileSize(burnedPath).catch(() => null);
+    if (burnedSize && burnedSize > 0) {
+      const fs = await import("node:fs/promises");
+      await fs.rename(burnedPath, outputPath);
+    }
+  }
+
   const finalLocalUrl = getProjectPublicUrl(projectId, outputFilename);
   const publishedFinal = await publishProjectFile({
     projectId,

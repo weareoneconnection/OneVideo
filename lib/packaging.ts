@@ -92,6 +92,36 @@ function renderCoverSvg(project: PackagingProject, scenes: PackagingScene[]) {
 </svg>`;
 }
 
+function formatSrtTime(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const ms = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
+
+  return [
+    String(hours).padStart(2, "0"),
+    String(minutes).padStart(2, "0"),
+    `${String(seconds).padStart(2, "0")},${String(ms).padStart(3, "0")}`
+  ].join(":");
+}
+
+function buildSubtitleSrt(scenes: PackagingScene[]) {
+  let cursor = 0;
+  const blocks = scenes.map((scene, index) => {
+    const start = cursor;
+    const end = cursor + scene.durationSeconds;
+    cursor = end;
+
+    return [
+      String(index + 1),
+      `${formatSrtTime(start)} --> ${formatSrtTime(end)}`,
+      scene.voiceover.trim()
+    ].join("\n");
+  });
+
+  return blocks.join("\n\n") + "\n";
+}
+
 function buildSubtitleVtt(scenes: PackagingScene[]) {
   let cursor = 0;
   const blocks = scenes.map((scene, index) => {
@@ -115,15 +145,22 @@ export async function createPackagingAssets(input: {
 }) {
   const dir = await ensureProjectPublicDir(input.project.id);
   const subtitleFilename = "subtitles.vtt";
+  const srtFilename = "subtitles.srt";
   const titleCardFilename = "title-card.svg";
   const coverFilename = "cover.svg";
   const subtitleUrl = getProjectPublicUrl(input.project.id, subtitleFilename);
+  const srtUrl = getProjectPublicUrl(input.project.id, srtFilename);
   const titleCardUrl = getProjectPublicUrl(input.project.id, titleCardFilename);
   const coverUrl = getProjectPublicUrl(input.project.id, coverFilename);
 
   await writeFile(
     path.join(dir, subtitleFilename),
     buildSubtitleVtt(input.scenes),
+    "utf8"
+  );
+  await writeFile(
+    path.join(dir, srtFilename),
+    buildSubtitleSrt(input.scenes),
     "utf8"
   );
   await writeFile(
@@ -143,6 +180,13 @@ export async function createPackagingAssets(input: {
     localPath: path.join(dir, subtitleFilename),
     localUrl: subtitleUrl,
     contentType: "text/vtt"
+  });
+  const srtPublished = await publishProjectFile({
+    projectId: input.project.id,
+    filename: srtFilename,
+    localPath: path.join(dir, srtFilename),
+    localUrl: srtUrl,
+    contentType: "application/x-subrip"
   });
   const titleCardPublished = await publishProjectFile({
     projectId: input.project.id,
@@ -182,6 +226,33 @@ export async function createPackagingAssets(input: {
         kind: "subtitle_track",
         format: "webvtt",
         storage: subtitlePublished
+      }
+    }
+  });
+
+  await db.asset.upsert({
+    where: {
+      id: `${input.project.id}-subtitles-srt`
+    },
+    update: {
+      url: srtPublished.url,
+      mimeType: "application/x-subrip",
+      metadata: {
+        kind: "subtitle_track",
+        format: "srt",
+        storage: srtPublished
+      }
+    },
+    create: {
+      id: `${input.project.id}-subtitles-srt`,
+      projectId: input.project.id,
+      type: "subtitle_srt",
+      url: srtPublished.url,
+      mimeType: "application/x-subrip",
+      metadata: {
+        kind: "subtitle_track",
+        format: "srt",
+        storage: srtPublished
       }
     }
   });
@@ -238,6 +309,8 @@ export async function createPackagingAssets(input: {
 
   return {
     subtitleUrl: subtitlePublished.url,
+    subtitleSrtUrl: srtPublished.url,
+    srtLocalPath: path.join(dir, srtFilename),
     titleCardUrl: titleCardPublished.url,
     coverUrl: coverPublished.url
   };

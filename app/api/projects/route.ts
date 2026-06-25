@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { enqueueProjectWorkflow } from "@/lib/queues/project-queue";
-import { ensureDemoUser } from "@/lib/workflow";
+import { getOrCreateUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ const createProjectSchema = z.object({
 });
 
 export async function GET() {
-  const user = await ensureDemoUser();
+  const user = await getOrCreateUser();
   const projects = await db.project.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
@@ -27,7 +27,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = createProjectSchema.parse(await req.json());
-  const user = await ensureDemoUser();
+  const user = await getOrCreateUser();
 
   const project = await db.project.create({
     data: {

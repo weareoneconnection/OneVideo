@@ -89,7 +89,8 @@ export function getRenderQueue() {
 
 export async function enqueueSceneVideo(
   sceneId: string,
-  requestedBy: SceneVideoJobData["requestedBy"] = "workflow"
+  requestedBy: SceneVideoJobData["requestedBy"] = "workflow",
+  options?: { delay?: number }
 ) {
   const scene = await db.scene.findUniqueOrThrow({
     where: {
@@ -111,7 +112,8 @@ export async function enqueueSceneVideo(
       phase: "generate"
     } satisfies SceneVideoJobData,
     {
-      jobId: safeJobId(["scene", scene.id, Date.now()])
+      jobId: safeJobId(["scene", scene.id, Date.now()]),
+      delay: options?.delay
     }
   );
 

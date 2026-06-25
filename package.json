@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
+    "@clerk/nextjs": "^7.5.8",
     "@prisma/client": "6.19.0",
     "bullmq": "^5.79.0",
     "class-variance-authority": "latest",

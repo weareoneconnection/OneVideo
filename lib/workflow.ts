@@ -281,8 +281,11 @@ export async function runProjectWorkflow(projectId: string) {
       }))
     });
 
-    for (const scene of createdScenes) {
-      await enqueueSceneVideo(scene.id, "workflow");
+    const staggerMs = Number(process.env.SCENE_STAGGER_MS || 5000);
+    for (let i = 0; i < createdScenes.length; i++) {
+      await enqueueSceneVideo(createdScenes[i].id, "workflow", {
+        delay: i * staggerMs
+      });
     }
 
     return db.project.findUniqueOrThrow({

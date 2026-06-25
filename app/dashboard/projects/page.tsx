@@ -1,7 +1,7 @@
 import { Nav } from "@/components/nav";
 import { ProjectCard } from "@/components/project-card";
 import { db } from "@/lib/db";
-import { ensureDemoUser } from "@/lib/workflow";
+import { getOrCreateUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ type ProjectWithScenes = {
 };
 
 export default async function ProjectsPage() {
-  const user = await ensureDemoUser();
+  const user = await getOrCreateUser();
 
   const projects = await db.project.findMany({
     where: {

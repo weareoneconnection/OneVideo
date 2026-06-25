@@ -472,15 +472,20 @@ async function createKlingVideoTask(
   };
 }
 
-export async function createVideoTaskForScene(
+async function createVideoTaskForProvider(
+  provider: string,
   input: GenerateVideoInput
 ): Promise<CreateVideoTaskResult> {
-  const provider = process.env.VIDEO_PROVIDER || "mock";
-
   if (provider === "kling") {
     return createKlingVideoTask(input);
   }
 
+  if (provider === "runway") {
+    const { createRunwayVideoTask } = await import("./providers/runway");
+    return createRunwayVideoTask(input);
+  }
+
+  // mock / fallback
   return {
     provider: "mock-provider",
     model: "mock-video-v1",
@@ -490,6 +495,30 @@ export async function createVideoTaskForScene(
       videoUrl: MOCK_VIDEOS[input.sceneIndex % MOCK_VIDEOS.length]
     }
   };
+}
+
+export async function createVideoTaskForScene(
+  input: GenerateVideoInput
+): Promise<CreateVideoTaskResult> {
+  const chain = (process.env.VIDEO_PROVIDER_FALLBACK_CHAIN || process.env.VIDEO_PROVIDER || "mock")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  let lastError: Error | undefined;
+  for (const provider of chain) {
+    try {
+      return await createVideoTaskForProvider(provider, input);
+    } catch (err) {
+      console.warn(`[video-provider] Provider "${provider}" failed, trying next:`, err);
+      lastError = err as Error;
+    }
+  }
+
+  throw lastError ?? new VideoProviderError("All video providers failed", {
+    provider: chain.join(","),
+    model: "unknown"
+  });
 }
 
 export async function pollVideoTaskForScene(
@@ -502,6 +531,11 @@ export async function pollVideoTaskForScene(
       videoUrl: MOCK_VIDEOS[0],
       rawStatus: "completed"
     };
+  }
+
+  if (input.provider === "runway") {
+    const { pollRunwayVideoTask } = await import("./providers/runway");
+    return pollRunwayVideoTask(input);
   }
 
   if (input.provider !== "kling") {

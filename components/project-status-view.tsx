@@ -267,12 +267,32 @@ export function ProjectStatusView({
   useEffect(() => {
     if (isTerminal) return;
 
+    // SSE 推送，降级到轮询
+    if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
+      const es = new EventSource(`/api/projects/${project.id}/stream`);
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.project) setProject(data.project);
+          if (data.workerHealth !== undefined) setWorkerHealth(data.workerHealth);
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      es.onerror = () => {
+        es.close();
+        // fallback: 轮询一次恢复状态
+        void refreshProject();
+      };
+
+      return () => es.close();
+    }
+
+    // fallback polling
     void refreshProject();
-
-    const timer = window.setInterval(() => {
-      void refreshProject();
-    }, 3000);
-
+    const timer = window.setInterval(() => void refreshProject(), 3000);
     return () => window.clearInterval(timer);
   }, [project.id, isTerminal]);
 
