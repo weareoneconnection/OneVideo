@@ -24,7 +24,7 @@ export default async function SettingsPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto max-w-3xl px-4 sm:px-6 py-6 sm:py-12">
         <h1 className="text-3xl font-bold mb-8">设置</h1>
         <SocialAccountsSection
           initialAccounts={accounts}

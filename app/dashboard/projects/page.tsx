@@ -72,7 +72,7 @@ export default async function ProjectsPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-7xl px-6 py-12">
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-12">
         <div className="flex items-end justify-between gap-6">
           <div>
             <h1 className="text-4xl font-bold">Projects</h1>

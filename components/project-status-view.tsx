@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { StatusPill } from "./status-pill";
 import { PublishModal } from "./publish-modal";
+import { SaveTemplateButton } from "./template-grid";
 
 type VisualBiblePayload = {
   protagonist?: string;
@@ -299,7 +300,7 @@ export function ProjectStatusView({
   }, [project.id, isTerminal]);
 
   return (
-    <main className="mx-auto grid max-w-7xl gap-6 px-6 py-10 lg:grid-cols-12">
+    <main className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 py-6 sm:py-10 lg:grid-cols-12">
       <section className="lg:col-span-8">
         <div className="rounded-3xl border border-line bg-panel p-5">
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
@@ -366,9 +367,9 @@ export function ProjectStatusView({
 
           {project.finalVideoUrl && (
             <div className="mt-6">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
                 <span className="text-sm font-medium text-muted">最终视频</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <a
                     href={project.finalVideoUrl}
                     download
@@ -376,6 +377,7 @@ export function ProjectStatusView({
                   >
                     下载
                   </a>
+                  <SaveTemplateButton projectId={project.id} />
                   <button
                     onClick={() => setPublishModalOpen(true)}
                     className="rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-colors font-semibold"

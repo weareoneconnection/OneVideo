@@ -18,12 +18,15 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  projects       Project[]
-  credits        CreditAccount?
-  ledger         CreditLedger[]
-  voiceProfiles  VoiceProfile[]
-  batches        ProjectBatch[]
-  socialAccounts SocialAccount[]
+  projects             Project[]
+  credits              CreditAccount?
+  ledger               CreditLedger[]
+  voiceProfiles        VoiceProfile[]
+  batches              ProjectBatch[]
+  socialAccounts       SocialAccount[]
+  ownedWorkspaces      Workspace[]       @relation("OwnedWorkspaces")
+  workspaceMemberships WorkspaceMember[]
+  savedTemplates       Template[]
 }
 
 model CreditAccount {
@@ -79,6 +82,7 @@ model Project {
   subtitleStyle      String   @default("tiktok")
   subtitleEnabled    Boolean  @default(true)
   whisperSrtUrl      String?
+  workspaceId        String?
   status          String   @default("created")
   progress        Int      @default(0)
   workflowJobId   String?
@@ -101,6 +105,7 @@ model Project {
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   voiceProfile VoiceProfile?  @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
   batch        ProjectBatch?  @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  workspace    Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
   scenes       Scene[]
   assets       Asset[]
   modelTasks   ModelTask[]
@@ -243,6 +248,11 @@ model PublishRecord {
   hashtags        String[]
   errorMessage    String?
   publishedAt     DateTime?
+  viewCount       Int?
+  likeCount       Int?
+  commentCount    Int?
+  shareCount      Int?
+  lastSyncAt      DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -251,18 +261,54 @@ model PublishRecord {
 }
 
 model Template {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  category    String
-  platform    String
-  language    String
-  duration    Int
-  structure   Json
-  prompt      String
-  isPublic    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  category        String
+  platform        String
+  language        String
+  duration        Int
+  structure       Json
+  prompt          String
+  isPublic        Boolean  @default(true)
+  userId          String?
+  sourceProjectId String?
+  thumbnailUrl    String?
+  usageCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User              @relation("OwnedWorkspaces", fields: [ownerId], references: [id], onDelete: Cascade)
+  members  WorkspaceMember[]
+  projects Project[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  workspaceId String
+  userId      String?
+  email       String
+  role        String    @default("member")
+  status      String    @default("pending")
+  inviteToken String?   @unique
+  invitedAt   DateTime  @default(now())
+  joinedAt    DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, email])
 }
 
 model BrandKit {

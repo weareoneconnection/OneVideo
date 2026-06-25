@@ -125,6 +125,25 @@ export async function getTikTokPublishStatus(accessToken: string, publishId: str
   };
 }
 
+export async function getTikTokVideoStats(accessToken: string, videoId: string): Promise<{
+  viewCount: number; likeCount: number; commentCount: number; shareCount: number;
+}> {
+  const res = await fetch("https://open.tiktokapis.com/v2/video/query/?fields=statistics", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ filters: { video_ids: [videoId] } })
+  });
+  if (!res.ok) throw new Error(`TikTok stats error: ${res.status}`);
+  const data = await res.json();
+  const stats = data.data?.videos?.[0]?.statistics || {};
+  return {
+    viewCount: stats.play_count || 0,
+    likeCount: stats.digg_count || 0,
+    commentCount: stats.comment_count || 0,
+    shareCount: stats.share_count || 0
+  };
+}
+
 function buildCaption(title: string, description?: string, hashtags?: string[]): string {
   const tags = (hashtags || []).map(t => (t.startsWith("#") ? t : `#${t}`)).join(" ");
   return [title, description, tags].filter(Boolean).join("\n").trim();

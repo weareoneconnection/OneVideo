@@ -25,7 +25,7 @@ export default async function BillingPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-4xl px-4 sm:px-6 py-6 sm:py-10">
         <h1 className="text-3xl font-bold mb-8">计费 & 积分</h1>
 
         {/* 当前套餐 */}

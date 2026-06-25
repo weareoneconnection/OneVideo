@@ -125,3 +125,18 @@ export async function publishToYouTube(input: {
   const videoId = uploadData.id;
   return { videoId, videoUrl: `https://www.youtube.com/shorts/${videoId}` };
 }
+
+export async function getYouTubeVideoStats(accessToken: string, videoId: string): Promise<{
+  viewCount: number; likeCount: number; commentCount: number;
+}> {
+  const url = `${YOUTUBE_API_BASE}/videos?part=statistics&id=${videoId}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`YouTube stats error: ${res.status}`);
+  const data = await res.json();
+  const stats = data.items?.[0]?.statistics || {};
+  return {
+    viewCount: parseInt(stats.viewCount || "0"),
+    likeCount: parseInt(stats.likeCount || "0"),
+    commentCount: parseInt(stats.commentCount || "0")
+  };
+}
