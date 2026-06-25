@@ -40,11 +40,11 @@ export function buildSrt(words: WordTimestamp[], wordsPerLine = 4): string {
 }
 
 // Font that supports CJK characters. Override with SUBTITLE_FONT env var.
-// Railway (Linux): install fonts-noto-cjk via nixpacks or use "Noto Sans CJK SC"
+// Railway (Linux/Nix): wqy-microhei → "WenQuanYi Micro Hei"
 // macOS: "PingFang SC" is built-in
 function getCjkFont(): string {
   if (process.env.SUBTITLE_FONT) return process.env.SUBTITLE_FONT;
-  return process.platform === "darwin" ? "PingFang SC" : "Noto Sans CJK SC";
+  return process.platform === "darwin" ? "PingFang SC" : "WenQuanYi Micro Hei";
 }
 
 // ── ASS header ──
@@ -132,9 +132,18 @@ export function buildSubtitleFile(words: WordTimestamp[], style: SubtitleStyle):
 // FFmpeg filter string for ASS/SRT burn-in
 export function getSubtitleBurnFilter(subtitlePath: string, style: SubtitleStyle): string {
   const escaped = subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+
+  // On Linux (Railway/Nix) fonts live in /run/current-system or ~/.nix-profile.
+  // Pass fontsdir so libass can find wqy-microhei without a full fc-cache rebuild.
+  const nixFontDirs = [
+    "/run/current-system/sw/share/X11/fonts",
+    "/nix/var/nix/profiles/default/share/fonts",
+  ];
+  const fontsdirArg = process.platform !== "darwin"
+    ? `:fontsdir=${nixFontDirs.join("\\:")}` : "";
+
   if (style === "classic" || style === "none") {
-    return `subtitles='${escaped}'`;
+    return `subtitles='${escaped}'${fontsdirArg}`;
   }
-  // ASS filter (styles embedded in file)
-  return `ass='${escaped}'`;
+  return `ass='${escaped}'${fontsdirArg}`;
 }

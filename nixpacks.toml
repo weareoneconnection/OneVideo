@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "pnpm", "ffmpeg", "noto-fonts-cjk-sans"]
+nixPkgs = ["nodejs_20", "pnpm", "ffmpeg", "wqy-microhei"]
 
 [phases.install]
 cmds = ["pnpm install --frozen-lockfile"]
