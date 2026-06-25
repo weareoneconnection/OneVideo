@@ -21,6 +21,25 @@ export async function GET(_: Request, { params }: { params: Promise<{ projectId:
   const stream = new ReadableStream({
     async start(controller) {
       let closed = false;
+      let interval: ReturnType<typeof setInterval> | null = null;
+
+      function safeClose() {
+        if (closed) return;
+        closed = true;
+        if (interval) { clearInterval(interval); interval = null; }
+        try { controller.close(); } catch { /* already closed by client disconnect */ }
+      }
+
+      function safeEnqueue(data: string) {
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(data));
+          return true;
+        } catch {
+          safeClose();
+          return false;
+        }
+      }
 
       const send = async () => {
         if (closed) return;
@@ -35,9 +54,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ projectId:
           });
 
           if (!project) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Project not found" })}\n\n`));
-            closed = true;
-            controller.close();
+            safeEnqueue(`data: ${JSON.stringify({ error: "Project not found" })}\n\n`);
+            safeClose();
             return;
           }
 
@@ -45,29 +63,21 @@ export async function GET(_: Request, { params }: { params: Promise<{ projectId:
             project,
             workerHealth: await getWorkerHealth()
           });
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+          safeEnqueue(`data: ${payload}\n\n`);
 
           if (TERMINAL_STATUSES.has(project.status)) {
-            closed = true;
-            controller.close();
+            safeClose();
           }
         } catch {
-          if (!closed) {
-            closed = true;
-            controller.close();
-          }
+          safeClose();
         }
       };
 
       await send();
 
-      const interval = setInterval(async () => {
-        if (closed) {
-          clearInterval(interval);
-          return;
-        }
+      interval = setInterval(async () => {
+        if (closed) { clearInterval(interval!); interval = null; return; }
         await send();
-        if (closed) clearInterval(interval);
       }, POLL_INTERVAL_MS);
     }
   });
