@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { SignInButton, SignOutButton, UserButton } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
+import { CreditsDisplay } from "./credits-guard";
 
 export function Nav() {
   const { userId } = useAuth();
@@ -15,8 +16,10 @@ export function Nav() {
           <Link href="/create">Create</Link>
           <Link href="/dashboard/projects">Projects</Link>
           <Link href="/dashboard/voices">Voices</Link>
+          <Link href="/pricing">定价</Link>
           <Link href="/dashboard/billing">Billing</Link>
           <Link href="/dashboard/settings">设置</Link>
+          {userId && <CreditsDisplay />}
           {userId ? (
             <div className="flex items-center gap-3">
               <UserButton />
