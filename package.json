@@ -25,6 +25,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "stripe": "^22.3.0",
     "tailwind-merge": "latest",
     "zod": "latest"
   },

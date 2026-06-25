@@ -12,6 +12,8 @@ export async function Nav() {
         <nav className="flex items-center gap-4 text-sm text-muted">
           <Link href="/create">Create</Link>
           <Link href="/dashboard/projects">Projects</Link>
+          <Link href="/dashboard/voices">Voices</Link>
+          <Link href="/dashboard/billing">Billing</Link>
           <Link href="/templates">Templates</Link>
           {userId ? (
             <div className="flex items-center gap-3">

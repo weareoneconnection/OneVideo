@@ -12,7 +12,8 @@ const createProjectSchema = z.object({
   language: z.enum(["zh", "en"]).default("zh"),
   aspectRatio: z.enum(["9:16", "16:9", "1:1"]).default("9:16"),
   durationSeconds: z.coerce.number().int().min(15).max(60).default(45),
-  style: z.string().optional()
+  style: z.string().optional(),
+  voiceProfileId: z.string().optional()
 });
 
 export async function GET() {
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest) {
       aspectRatio: body.aspectRatio,
       durationSeconds: body.durationSeconds,
       style: body.style || "cinematic, realistic, commercial short-video style",
+      voiceProfileId: body.voiceProfileId || null,
       status: "created",
       progress: 0
     }

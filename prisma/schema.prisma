@@ -8,15 +8,20 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String    @id @default(uuid())
+  email            String    @unique
+  name             String?
+  stripeCustomerId String?   @unique
+  stripePlanId     String?
+  stripeSubId      String?
+  planExpiresAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  projects Project[]
-  credits  CreditAccount?
-  ledger   CreditLedger[]
+  projects      Project[]
+  credits       CreditAccount?
+  ledger        CreditLedger[]
+  voiceProfiles VoiceProfile[]
 }
 
 model CreditAccount {
@@ -54,6 +59,7 @@ model Project {
   aspectRatio     String
   durationSeconds Int
   style           String?
+  voiceProfileId  String?
   status          String   @default("created")
   progress        Int      @default(0)
   workflowJobId   String?
@@ -73,11 +79,12 @@ model Project {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  scenes     Scene[]
-  assets     Asset[]
-  modelTasks ModelTask[]
-  creditLogs CreditLedger[]
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voiceProfile VoiceProfile?  @relation(fields: [voiceProfileId], references: [id], onDelete: SetNull)
+  scenes       Scene[]
+  assets       Asset[]
+  modelTasks   ModelTask[]
+  creditLogs   CreditLedger[]
 }
 
 model Scene {
@@ -205,4 +212,19 @@ model WorkerHeartbeat {
   lastSeenAt DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model VoiceProfile {
+  id                String   @id @default(uuid())
+  userId            String
+  name              String
+  elevenLabsVoiceId String
+  sampleUrl         String?
+  language          String   @default("zh")
+  isDefault         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
 }

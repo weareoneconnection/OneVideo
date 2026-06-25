@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+type VoiceProfile = { id: string; name: string; isDefault: boolean };
 
 export function CreateForm() {
   const [topic, setTopic] = useState("我以前是搞工地的，现在用 AI 做了一个自动交易系统，要做一条有反差感的短视频。");
@@ -8,8 +10,19 @@ export function CreateForm() {
   const [language, setLanguage] = useState("zh");
   const [durationSeconds, setDurationSeconds] = useState(45);
   const [style, setStyle] = useState("真实记录感，科技感，反差感，短视频爆款风格");
+  const [voiceProfileId, setVoiceProfileId] = useState("");
+  const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/voices").then(r => r.json()).then(d => {
+      const list: VoiceProfile[] = d.voices || [];
+      setVoices(list);
+      const def = list.find(v => v.isDefault);
+      if (def) setVoiceProfileId(def.id);
+    }).catch(() => {});
+  }, []);
 
   async function submit() {
     setLoading(true);
@@ -19,7 +32,10 @@ export function CreateForm() {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, platform, language, durationSeconds, aspectRatio: "9:16", style })
+        body: JSON.stringify({
+          topic, platform, language, durationSeconds, aspectRatio: "9:16", style,
+          voiceProfileId: voiceProfileId || undefined
+        })
       });
       const data = await res.json();
 
@@ -73,6 +89,18 @@ export function CreateForm() {
         <label className="text-sm text-muted">Style</label>
         <input className="mt-2 w-full rounded-xl border border-line bg-soft p-3" value={style} onChange={(e) => setStyle(e.target.value)} />
       </div>
+
+      {voices.length > 0 && (
+        <div className="mt-5">
+          <label className="text-sm text-muted">配音声音</label>
+          <select className="mt-2 w-full rounded-xl border border-line bg-soft p-3" value={voiceProfileId} onChange={(e) => setVoiceProfileId(e.target.value)}>
+            <option value="">默认声音（系统 TTS）</option>
+            {voices.map(v => (
+              <option key={v.id} value={v.id}>{v.name}{v.isDefault ? " ★" : ""}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <button onClick={submit} disabled={loading || !topic.trim()} className="mt-6 w-full rounded-2xl bg-white px-6 py-4 font-semibold text-black disabled:opacity-60">
         {loading ? "Creating generation task..." : "Generate OneVideo Project"}

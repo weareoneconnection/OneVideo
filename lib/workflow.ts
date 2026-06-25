@@ -148,10 +148,25 @@ export async function updateProjectVideoAggregate(projectId: string) {
 export async function runProjectWorkflow(projectId: string) {
   try {
     const project = await db.project.findUniqueOrThrow({
-      where: {
-        id: projectId
-      }
+      where: { id: projectId },
+      include: { user: { include: { credits: true } } }
     });
+
+    // 积分余额检查（估算：最多 5 场景 × 15 + 渲染 8 = 83 分）
+    const estimatedCost = 83;
+    const { checkBalance } = await import("./credits");
+    const hasBalance = await checkBalance(project.userId, estimatedCost);
+    if (!hasBalance) {
+      await db.project.update({
+        where: { id: projectId },
+        data: {
+          status: "failed",
+          errorMessage: "积分不足，请前往 Billing 页面充值",
+          failedAt: new Date()
+        }
+      });
+      return null;
+    }
 
     await db.project.update({
       where: {

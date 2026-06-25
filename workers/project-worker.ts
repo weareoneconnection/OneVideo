@@ -89,8 +89,8 @@ const projectWorker = new Worker<ProjectWorkflowJobData>(
     });
 
     return {
-      projectId: project.id,
-      status: project.status
+      projectId: project?.id ?? projectId,
+      status: project?.status ?? "unknown"
     };
   },
   {

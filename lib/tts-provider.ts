@@ -11,6 +11,7 @@ export type GenerateSpeechInput = {
   text: string;
   durationSeconds: number;
   language: string;
+  elevenLabsVoiceId?: string;
 };
 
 export type GenerateSpeechResult = {
@@ -49,7 +50,17 @@ async function assertFfmpegAvailable() {
 export async function generateSpeech(
   input: GenerateSpeechInput
 ): Promise<GenerateSpeechResult> {
+  // 若传入 voiceId，优先使用 ElevenLabs 克隆声音
+  if (input.elevenLabsVoiceId) {
+    const { generateSpeechWithElevenLabs } = await import("./providers/elevenlabs");
+    return generateSpeechWithElevenLabs({ ...input, voiceId: input.elevenLabsVoiceId });
+  }
+
   const provider = getTtsProvider();
+
+  if (provider === "elevenlabs") {
+    throw new Error("TTS_PROVIDER=elevenlabs requires elevenLabsVoiceId. Use a VoiceProfile or switch to openai/system.");
+  }
 
   if (provider === "openai") {
     return generateWithOpenAI(input);

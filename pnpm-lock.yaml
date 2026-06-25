@@ -38,6 +38,9 @@ importers:
       react-dom:
         specifier: latest
         version: 19.2.7(react@19.2.7)
+      stripe:
+        specifier: ^22.3.0
+        version: 22.3.0(@types/node@26.0.0)
       tailwind-merge:
         specifier: latest
         version: 3.6.0
@@ -2457,6 +2460,15 @@ packages:
   strip-bom@3.0.0:
     resolution: {integrity: sha512-vavAMRXOgBVNF6nyEEmL3DBK19iRpDcoIwW+swQ+CbGiu7lju6t+JklA1MHweoWtadgt4ISVUsXLyDq34ddcwA==}
     engines: {node: '>=4'}
+
+  stripe@22.3.0:
+    resolution: {integrity: sha512-ypO6xjVrMWs9SmIMeHr8naCx3dAQ0clxMdUTxn7Ejd7hmY9meBGfE+N4pVHkf9sUNebAHp6uJo6mV3GxDIc2cA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   strnum@2.4.1:
     resolution: {integrity: sha512-M9eUSMT2dCB2cTNPG7UYj6KuK7RJR2SN2+yCV/fTW3xzTCS6EaGZ5pSMgDIjB7r8zSfTGk+dvvn9rTjpVS9Mwg==}
@@ -5225,6 +5237,10 @@ snapshots:
       es-object-atoms: 1.1.2
 
   strip-bom@3.0.0: {}
+
+  stripe@22.3.0(@types/node@26.0.0):
+    optionalDependencies:
+      '@types/node': 26.0.0
 
   strnum@2.4.1:
     dependencies:

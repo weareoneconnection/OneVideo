@@ -109,6 +109,9 @@ export async function runRenderWorkflow(projectId: string) {
         orderBy: {
           sceneIndex: "asc"
         }
+      },
+      voiceProfile: {
+        select: { elevenLabsVoiceId: true }
       }
     }
   });
@@ -188,7 +191,8 @@ export async function runRenderWorkflow(projectId: string) {
     projectId,
     text: voiceoverText,
     durationSeconds: project.durationSeconds,
-    language: project.language
+    language: project.language,
+    elevenLabsVoiceId: (project as any).voiceProfile?.elevenLabsVoiceId
   });
   const publishedSpeech = await publishProjectFile({
     projectId,
@@ -396,6 +400,21 @@ export async function runRenderWorkflow(projectId: string) {
     }
   });
 
+  const totalCostCredits = completedScenes.length * 15 + 8;
+
+  // 扣除积分
+  try {
+    const { deductCredits } = await import("./credits");
+    await deductCredits(
+      project.userId,
+      projectId,
+      totalCostCredits,
+      `视频生成：${completedScenes.length} 个场景 + 渲染`
+    );
+  } catch (err) {
+    console.warn("积分扣除失败（不阻断完成）:", err);
+  }
+
   return db.project.update({
     where: {
       id: projectId
@@ -409,7 +428,7 @@ export async function runRenderWorkflow(projectId: string) {
       completedAt: new Date(),
       failedAt: null,
       errorMessage: null,
-      totalCostCredits: completedScenes.length * 15 + 8
+      totalCostCredits
     }
   });
 }
