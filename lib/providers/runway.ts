@@ -31,8 +31,20 @@ export async function createRunwayVideoTask(
     });
   }
 
-  const generationType: VideoGenerationType =
-    input.firstFrameUrl || input.referenceImageUrl ? "image_to_video" : "text_to_video";
+  // gen4_turbo always requires promptImage; filter out SVG placeholders (Runway rejects them)
+  const imageUrl = [input.firstFrameUrl, input.referenceImageUrl]
+    .find(u => u && !u.endsWith(".svg") && !u.includes("placeholder"));
+
+  const generationType: VideoGenerationType = imageUrl ? "image_to_video" : "text_to_video";
+
+  // gen4_turbo requires an image — if none available, throw so caller can fallback
+  if (model === "gen4_turbo" && !imageUrl) {
+    throw new VideoProviderError(
+      "Runway gen4_turbo requires a reference image but none was provided (or only SVG placeholder available). " +
+      "Enable IMAGE_PROVIDER=openai to generate scene images first.",
+      { provider: "runway", model }
+    );
+  }
 
   const body: Record<string, unknown> = {
     model,
@@ -41,8 +53,8 @@ export async function createRunwayVideoTask(
     duration: Math.min(Math.max(input.durationSeconds, 5), 10)
   };
 
-  if (generationType === "image_to_video") {
-    body.promptImage = [{ uri: input.firstFrameUrl || input.referenceImageUrl, position: "first" }];
+  if (imageUrl) {
+    body.promptImage = [{ uri: imageUrl, position: "first" }];
   }
 
   const maxRetries = Number(process.env.RUNWAY_RATE_LIMIT_RETRIES || 3);
