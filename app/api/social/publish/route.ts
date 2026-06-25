@@ -14,7 +14,8 @@ const schema = z.object({
   title: z.string().min(1).max(150),
   description: z.string().max(2000).optional(),
   hashtags: z.array(z.string()).max(30).optional(),
-  privacyLevel: z.enum(["public", "private", "unlisted", "friends_only"]).default("public")
+  privacyLevel: z.enum(["public", "private", "unlisted", "friends_only"]).default("public"),
+  scheduledAt: z.string().datetime().optional()
 });
 
 export async function POST(req: NextRequest) {
@@ -69,7 +70,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 创建发布记录
+  // 定时发布：仅创建记录，等 cron 触发
+  const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null;
+  if (scheduledAt && scheduledAt > new Date()) {
+    const record = await db.publishRecord.create({
+      data: {
+        projectId: project.id,
+        socialAccountId: account.id,
+        platform: account.platform,
+        status: "scheduled",
+        title: body.title,
+        description: body.description,
+        hashtags: body.hashtags || [],
+        scheduledAt
+      }
+    });
+    return NextResponse.json({ record, scheduled: true });
+  }
+
+  // 立即发布
   const record = await db.publishRecord.create({
     data: {
       projectId: project.id,

@@ -247,6 +247,7 @@ model PublishRecord {
   description     String?
   hashtags        String[]
   errorMessage    String?
+  scheduledAt     DateTime?
   publishedAt     DateTime?
   viewCount       Int?
   likeCount       Int?

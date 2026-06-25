@@ -95,6 +95,17 @@ async function generatePlaceholderImage(
   };
 }
 
+function buildImagePrompt(rawPrompt: string, kind: GenerateImageInput["kind"]): string {
+  const stylePrefix = "Cinematic vertical 9:16 short-video scene, photorealistic, professional color grading, shallow depth of field. ";
+  const coverSuffix = " Poster-style composition, bold visual hierarchy, no text or watermarks.";
+  const sceneSuffix = " No text overlays, no subtitles, no watermarks. Dramatic lighting, social-media ready.";
+
+  if (kind === "cover" || kind === "title_card") {
+    return stylePrefix + rawPrompt + coverSuffix;
+  }
+  return stylePrefix + rawPrompt + sceneSuffix;
+}
+
 async function generateWithOpenAICompatible(
   input: GenerateImageInput
 ): Promise<GenerateImageResult> {
@@ -113,8 +124,10 @@ async function generateWithOpenAICompatible(
     },
     body: JSON.stringify({
       model,
-      prompt: input.prompt,
+      prompt: buildImagePrompt(input.prompt, input.kind),
       size: getImageSize(input.kind),
+      quality: model === "dall-e-3" ? "hd" : undefined,
+      style: model === "dall-e-3" ? "vivid" : undefined,
       n: 1
     })
   });

@@ -43,6 +43,8 @@ export function PublishModal({
   const [description, setDescription] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [privacy, setPrivacy] = useState<"public" | "private" | "unlisted">("public");
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState<{ url?: string; platform: string } | null>(null);
@@ -70,13 +72,14 @@ export function PublishModal({
           title,
           description: description || undefined,
           hashtags: hashtags.split(/[\s,#]+/).filter(Boolean),
-          privacyLevel: privacy
+          privacyLevel: privacy,
+          scheduledAt: scheduleEnabled && scheduledAt ? new Date(scheduledAt).toISOString() : undefined
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "发布失败");
       const acc = accounts.find(a => a.id === selectedAccountId);
-      setSuccess({ url: data.platformPostUrl, platform: acc?.platform || "" });
+      setSuccess({ url: data.platformPostUrl, platform: acc?.platform || "", ...(data.scheduled ? { scheduled: true } : {}) } as any);
       // 刷新发布记录
       fetch(`/api/social/publish?projectId=${projectId}`).then(r => r.json()).then(d => setRecords(d.records || []));
     } catch (err) {
@@ -165,11 +168,34 @@ export function PublishModal({
               </div>
             </div>
 
+            {/* 定时发布 */}
+            <div className="rounded-xl border border-line bg-soft/50 p-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={scheduleEnabled} onChange={e => setScheduleEnabled(e.target.checked)} className="h-4 w-4 rounded" />
+                <span className="text-sm font-medium">定时发布</span>
+              </label>
+              {scheduleEnabled && (
+                <div className="mt-3">
+                  <label className="text-xs text-muted">选择发布时间</label>
+                  <input
+                    type="datetime-local"
+                    className="mt-1 w-full rounded-xl border border-line bg-panel p-3 text-sm outline-none focus:border-zinc-400"
+                    value={scheduledAt}
+                    min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                    onChange={e => setScheduledAt(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
             {error && <p className="mb-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
             {success && (
               <div className="mb-3 rounded-xl border border-green-500/20 bg-green-500/10 p-3 text-sm text-green-300">
-                发布成功！{success.url && <a href={success.url} target="_blank" rel="noopener noreferrer" className="ml-2 underline">查看视频 →</a>}
+                {(success as any).scheduled
+                  ? `已排期发布到 ${success.platform} ✓`
+                  : <>发布成功！{success.url && <a href={success.url} target="_blank" rel="noopener noreferrer" className="ml-2 underline">查看视频 →</a>}</>
+                }
               </div>
             )}
 
