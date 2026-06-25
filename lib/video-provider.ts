@@ -1,3 +1,25 @@
+// Kling global concurrency limiter — avoid 429 when multiple scenes run in parallel
+class Semaphore {
+  private queue: Array<() => void> = [];
+  private running = 0;
+  constructor(private readonly limit: number) {}
+  async acquire(): Promise<() => void> {
+    if (this.running < this.limit) {
+      this.running++;
+      return () => this.release();
+    }
+    return new Promise<() => void>((resolve) => {
+      this.queue.push(() => { this.running++; resolve(() => this.release()); });
+    });
+  }
+  private release() {
+    this.running--;
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
+const klingSemaphore = new Semaphore(Number(process.env.KLING_CONCURRENCY || 1));
+
 export type GenerateVideoInput = {
   projectId: string;
   sceneId: string;
@@ -260,68 +282,72 @@ async function generateWithMock(
 async function generateWithKling(
   input: GenerateVideoInput
 ): Promise<GenerateVideoResult> {
+  const release = await klingSemaphore.acquire();
   let createResult: CreateVideoTaskResult;
 
   try {
-    createResult = await createKlingVideoTask(input);
-  } catch (error) {
-    if (error instanceof VideoProviderError) {
+    try {
+      createResult = await createKlingVideoTask(input);
+    } catch (error) {
+      if (error instanceof VideoProviderError) {
+        return failKlingOrFallback({
+          originalInput: input,
+          message: error.message,
+          model: error.details.model,
+          externalTaskId: error.details.externalTaskId,
+          raw: error.details.raw
+        });
+      }
+      throw error;
+    }
+
+    const baseUrl =
+      process.env.KLING_BASE_URL || "https://api-singapore.klingai.com";
+    const apiKey = process.env.KLING_API_KEY;
+
+    if (!apiKey) {
       return failKlingOrFallback({
         originalInput: input,
-        message: error.message,
-        model: error.details.model,
-        externalTaskId: error.details.externalTaskId,
-        raw: error.details.raw
+        message: "Kling skipped: missing KLING_API_KEY",
+        model: createResult.model
       });
     }
 
-    throw error;
-  }
-
-  const baseUrl =
-    process.env.KLING_BASE_URL || "https://api-singapore.klingai.com";
-  const apiKey = process.env.KLING_API_KEY;
-
-  if (!apiKey) {
-    return failKlingOrFallback({
-      originalInput: input,
-      message: "Kling skipped: missing KLING_API_KEY",
-      model: createResult.model
+    const result = await pollKlingTextToVideoTask({
+      baseUrl,
+      apiKey,
+      taskId: createResult.externalTaskId,
+      generationType: createResult.generationType
     });
-  }
 
-  const result = await pollKlingTextToVideoTask({
-    baseUrl,
-    apiKey,
-    taskId: createResult.externalTaskId,
-    generationType: createResult.generationType
-  });
+    if (!result.videoUrl) {
+      return failKlingOrFallback({
+        originalInput: input,
+        message:
+          result.errorMessage ||
+          `Kling task completed without videoUrl: ${createResult.externalTaskId}`,
+        model: createResult.model,
+        externalTaskId: createResult.externalTaskId,
+        raw: {
+          createData: createResult.raw,
+          pollData: result.raw
+        }
+      });
+    }
 
-  if (!result.videoUrl) {
-    return failKlingOrFallback({
-      originalInput: input,
-      message:
-        result.errorMessage ||
-        `Kling task completed without videoUrl: ${createResult.externalTaskId}`,
+    return {
+      provider: "kling",
       model: createResult.model,
+      videoUrl: result.videoUrl,
       externalTaskId: createResult.externalTaskId,
       raw: {
         createData: createResult.raw,
-        pollData: result.raw
-      }
-    });
-  }
-
-  return {
-    provider: "kling",
-    model: createResult.model,
-    videoUrl: result.videoUrl,
-    externalTaskId: createResult.externalTaskId,
-    raw: {
-      createData: createResult.raw,
       pollData: result.raw
     }
   };
+  } finally {
+    release();
+  }
 }
 
 async function createKlingVideoTask(

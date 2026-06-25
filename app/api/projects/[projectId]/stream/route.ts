@@ -12,7 +12,7 @@ const TERMINAL_STATUSES = new Set([
   "needs_review"
 ]);
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 5000;
 
 export async function GET(_: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -47,9 +47,25 @@ export async function GET(_: Request, { params }: { params: Promise<{ projectId:
           const project = await db.project.findUnique({
             where: { id: projectId },
             include: {
-              scenes: { orderBy: { sceneIndex: "asc" } },
-              assets: true,
-              modelTasks: true
+              scenes: {
+                orderBy: { sceneIndex: "asc" },
+                select: {
+                  id: true, sceneIndex: true, status: true, videoUrl: true,
+                  imageUrl: true, errorMessage: true, provider: true,
+                  durationSeconds: true, voiceover: true, visualPrompt: true,
+                  videoPrompt: true, cameraMotion: true, mood: true,
+                  entryState: true, exitState: true, continuityAnchor: true,
+                  qualityScore: true, reviewStatus: true, qualityNotes: true,
+                  costCredits: true, queuedAt: true, startedAt: true,
+                  completedAt: true, failedAt: true
+                }
+              },
+              assets: { select: { id: true, type: true, url: true, mimeType: true } },
+              modelTasks: {
+                select: { id: true, provider: true, taskType: true, status: true, sceneId: true },
+                orderBy: { createdAt: "desc" },
+                take: 20
+              }
             }
           });
 
