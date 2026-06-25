@@ -1,9 +1,11 @@
-import Link from "next/link";
-import { SignInButton, SignOutButton, UserButton, ClerkLoaded, ClerkLoading } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+"use client";
 
-export async function Nav() {
-  const { userId } = await auth();
+import Link from "next/link";
+import { SignInButton, SignOutButton, UserButton } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
+
+export function Nav() {
+  const { userId } = useAuth();
 
   return (
     <header className="border-b border-line bg-black/40 backdrop-blur">
