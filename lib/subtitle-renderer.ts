@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { WordTimestamp } from "./whisper";
 
 export type SubtitleStyle = "none" | "classic" | "tiktok" | "karaoke" | "pill";
@@ -39,12 +40,18 @@ export function buildSrt(words: WordTimestamp[], wordsPerLine = 4): string {
   ].join("\n")).join("\n\n") + "\n";
 }
 
-// Font that supports CJK characters. Override with SUBTITLE_FONT env var.
-// Railway (Linux/Nix): wqy-microhei → "WenQuanYi Micro Hei"
-// macOS: "PingFang SC" is built-in
+// Bundled CJK font file (committed to repo, works on all platforms)
+const BUNDLED_FONT_PATH = path.resolve(__dirname, "../assets/fonts/wqy-microhei.ttc");
+
+// Font name as declared inside the TTC file
 function getCjkFont(): string {
   if (process.env.SUBTITLE_FONT) return process.env.SUBTITLE_FONT;
   return process.platform === "darwin" ? "PingFang SC" : "WenQuanYi Micro Hei";
+}
+
+// Returns the fontsdir pointing to bundled font (used in FFmpeg filter)
+export function getBundledFontsDir(): string {
+  return path.dirname(BUNDLED_FONT_PATH);
 }
 
 // ── ASS header ──
@@ -132,15 +139,9 @@ export function buildSubtitleFile(words: WordTimestamp[], style: SubtitleStyle):
 // FFmpeg filter string for ASS/SRT burn-in
 export function getSubtitleBurnFilter(subtitlePath: string, style: SubtitleStyle): string {
   const escaped = subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
-
-  // On Linux (Railway/Nix) fonts live in /run/current-system or ~/.nix-profile.
-  // Pass fontsdir so libass can find wqy-microhei without a full fc-cache rebuild.
-  const nixFontDirs = [
-    "/run/current-system/sw/share/X11/fonts",
-    "/nix/var/nix/profiles/default/share/fonts",
-  ];
-  const fontsdirArg = process.platform !== "darwin"
-    ? `:fontsdir=${nixFontDirs.join("\\:")}` : "";
+  // Always point libass at the bundled font directory so CJK renders on any platform
+  const fontsDir = getBundledFontsDir().replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+  const fontsdirArg = `:fontsdir=${fontsDir}`;
 
   if (style === "classic" || style === "none") {
     return `subtitles='${escaped}'${fontsdirArg}`;
