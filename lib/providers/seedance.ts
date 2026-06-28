@@ -131,15 +131,9 @@ export async function createSeedanceVideoTask(
 }
 
 function extractVideoUrl(data: any): string | undefined {
-  // content 数组中找 video_url
-  const content: any[] = data?.content || data?.output?.content || data?.choices?.[0]?.message?.content || [];
-  for (const item of content) {
-    if (item?.type === "video_url" && item?.video_url?.url) return item.video_url.url;
-    if (item?.type === "video_url" && typeof item?.video_url === "string") return item.video_url;
-    if (item?.video_url) return typeof item.video_url === "string" ? item.video_url : item.video_url?.url;
-  }
-  // 顶层兜底
-  return data?.video_url || data?.output?.video_url;
+  // 实测返回格式: { content: { video_url: "https://..." } }
+  if (typeof data?.content?.video_url === "string") return data.content.video_url;
+  return undefined;
 }
 
 export async function pollSeedanceVideoTask(
