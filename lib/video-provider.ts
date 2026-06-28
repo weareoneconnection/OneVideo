@@ -543,6 +543,11 @@ async function createVideoTaskForProvider(
     return createHeyGenVideoTask({ ...input, avatarId, voiceover: scene?.voiceover ?? undefined });
   }
 
+  if (provider === "seedance") {
+    const { createSeedanceVideoTask } = await import("./providers/seedance");
+    return createSeedanceVideoTask(input);
+  }
+
   // mock / fallback
   return {
     provider: "mock-provider",
@@ -599,6 +604,11 @@ export async function pollVideoTaskForScene(
   if (input.provider === "heygen") {
     const { pollHeyGenVideoTask } = await import("./providers/heygen");
     return pollHeyGenVideoTask(input);
+  }
+
+  if (input.provider === "seedance") {
+    const { pollSeedanceVideoTask } = await import("./providers/seedance");
+    return pollSeedanceVideoTask(input);
   }
 
   if (input.provider !== "kling") {
