@@ -1,14 +1,12 @@
 /**
- * Seedance (Doubao-Seed) via Volcano Engine Ark — Responses API
+ * Seedance 2.0 via Volcano Engine Ark — Contents Generations API
  *
- * 申请: https://console.volcengine.com/ark → 模型广场 → Doubao-Seed-2.1-pro
+ * 申请: https://console.volcengine.com/ark → 模型广场 → Doubao-Seedance-2.0
  *
  * 环境变量:
  *   SEEDANCE_API_KEY    — Ark API Key (以 "ark-" 开头)
- *   SEEDANCE_MODEL      — 模型ID, e.g. "doubao-seed-2-1-pro-260628"
+ *   SEEDANCE_MODEL      — 模型ID，默认 "doubao-seedance-2-0-260128"
  *   SEEDANCE_BASE_URL   — 可选，默认 https://ark.cn-beijing.volces.com/api/v3
- *   SEEDANCE_DURATION   — 视频时长秒 (可选，部分模型通过 prompt 控制)
- *   SEEDANCE_RESOLUTION — 分辨率，默认 "1080x1920" (9:16竖屏)
  *   SEEDANCE_POLL_ATTEMPTS   — 轮询次数，默认 60
  *   SEEDANCE_POLL_INTERVAL_MS — 轮询间隔ms，默认 10000
  */
@@ -16,21 +14,19 @@
 import type {
   GenerateVideoInput,
   CreateVideoTaskResult,
-  PollVideoTaskInput as _PollVideoTaskInput,
+  PollVideoTaskInput,
   PollVideoTaskResult
 } from "../video-provider";
-
-// Extend with internal raw field used by sync-result path
-type PollVideoTaskInput = _PollVideoTaskInput & { raw?: unknown };
 import { VideoProviderError } from "../video-provider";
+
+// Extend with internal raw field used for sync-result path
+type PollVideoTaskInputExt = PollVideoTaskInput & { raw?: unknown };
 
 function getConfig() {
   return {
     apiKey: process.env.SEEDANCE_API_KEY || "",
-    model: process.env.SEEDANCE_MODEL || "doubao-seed-2-1-pro-260628",
-    baseUrl: (process.env.SEEDANCE_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, ""),
-    duration: process.env.SEEDANCE_DURATION ? Number(process.env.SEEDANCE_DURATION) : undefined,
-    resolution: process.env.SEEDANCE_RESOLUTION || "1080x1920"
+    model: process.env.SEEDANCE_MODEL || "doubao-seedance-2-0-260128",
+    baseUrl: (process.env.SEEDANCE_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3").replace(/\/$/, "")
   };
 }
 
@@ -41,7 +37,7 @@ function sleep(ms: number) {
 export async function createSeedanceVideoTask(
   input: GenerateVideoInput
 ): Promise<CreateVideoTaskResult> {
-  const { apiKey, model, baseUrl, duration, resolution } = getConfig();
+  const { apiKey, model, baseUrl } = getConfig();
 
   if (!apiKey) {
     throw new VideoProviderError("Seedance skipped: missing SEEDANCE_API_KEY", {
@@ -55,39 +51,24 @@ export async function createSeedanceVideoTask(
     !input.firstFrameUrl!.endsWith(".svg") &&
     !input.firstFrameUrl!.includes("placeholder");
 
-  // Ark Responses API — 和截图中的格式完全一致
-  const contentItems: Array<Record<string, unknown>> = [];
+  // 按截图格式：content 数组，type="text" + type="image_url"
+  const content: Array<Record<string, unknown>> = [
+    {
+      type: "text",
+      text: input.prompt.slice(0, 2500)
+    }
+  ];
 
   if (isImageToVideo && input.firstFrameUrl) {
-    contentItems.push({
-      type: "input_image",
-      image_url: input.firstFrameUrl
+    content.push({
+      type: "image_url",
+      image_url: { url: input.firstFrameUrl }
     });
   }
 
-  // 附加分辨率/时长到 prompt（Seedance 通过 prompt 控制部分参数）
-  let promptText = input.prompt.slice(0, 2500);
-  const suffixParts: string[] = [];
-  if (resolution) suffixParts.push(`Resolution: ${resolution}`);
-  if (duration) suffixParts.push(`Duration: ${duration}s`);
-  if (suffixParts.length > 0) promptText += `. [${suffixParts.join(", ")}]`;
+  const body = { model, content };
 
-  contentItems.push({
-    type: "input_text",
-    text: promptText
-  });
-
-  const body = {
-    model,
-    input: [
-      {
-        role: "user",
-        content: contentItems
-      }
-    ]
-  };
-
-  const res = await fetch(`${baseUrl}/responses`, {
+  const res = await fetch(`${baseUrl}/contents/generations/tasks`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -115,11 +96,10 @@ export async function createSeedanceVideoTask(
     );
   }
 
-  // Ark Responses API 返回 { id, status, ... }
-  const taskId: string = data?.id;
+  const taskId: string = data?.id || data?.task_id;
   if (!taskId) {
     throw new VideoProviderError(
-      `Seedance returned no response id: ${text.slice(0, 300)}`,
+      `Seedance returned no task id: ${text.slice(0, 300)}`,
       { provider: "seedance", model, raw: data }
     );
   }
@@ -127,8 +107,8 @@ export async function createSeedanceVideoTask(
   const status: string = (data?.status || "").toLowerCase();
   console.log(`[seedance] Task created: ${taskId}, status: ${status} (${isImageToVideo ? "i2v" : "t2v"})`);
 
-  // 如果同步就返回了结果（status=completed），直接提取 video_url
-  if (status === "completed") {
+  // 同步完成时直接提取 video_url
+  if (status === "succeeded" || status === "completed") {
     const videoUrl = extractVideoUrl(data);
     if (videoUrl) {
       return {
@@ -151,24 +131,19 @@ export async function createSeedanceVideoTask(
 }
 
 function extractVideoUrl(data: any): string | undefined {
-  // Ark Responses API 视频结果路径（根据官方文档）
-  const output = data?.output;
-  if (typeof output === "string" && output.startsWith("http")) return output;
-
-  // output.content 数组中找 video 类型
-  const content: any[] = output?.content || data?.choices?.[0]?.message?.content || [];
+  // content 数组中找 video_url
+  const content: any[] = data?.content || data?.output?.content || data?.choices?.[0]?.message?.content || [];
   for (const item of content) {
-    if (item?.type === "video_url" && item?.video_url) return item.video_url;
-    if (item?.type === "output_video" && item?.video_url) return item.video_url;
-    if (item?.video_url) return item.video_url;
+    if (item?.type === "video_url" && item?.video_url?.url) return item.video_url.url;
+    if (item?.type === "video_url" && typeof item?.video_url === "string") return item.video_url;
+    if (item?.video_url) return typeof item.video_url === "string" ? item.video_url : item.video_url?.url;
   }
-
-  // 顶层 video_url 兜底
+  // 顶层兜底
   return data?.video_url || data?.output?.video_url;
 }
 
 export async function pollSeedanceVideoTask(
-  input: PollVideoTaskInput
+  input: PollVideoTaskInputExt
 ): Promise<PollVideoTaskResult> {
   const { apiKey, model, baseUrl } = getConfig();
 
@@ -176,13 +151,13 @@ export async function pollSeedanceVideoTask(
     return { ...input, status: "failed", errorMessage: "Missing SEEDANCE_API_KEY" };
   }
 
-  // 如果 create 阶段已经同步拿到 video_url，直接返回
-  const syncUrl = (input as any).raw?._syncVideoUrl;
+  // 同步阶段已拿到 video_url，直接返回
+  const syncUrl = (input.raw as any)?._syncVideoUrl;
   if (syncUrl) {
     return { ...input, status: "completed", videoUrl: syncUrl, rawStatus: "completed" };
   }
 
-  const res = await fetch(`${baseUrl}/responses/${input.externalTaskId}`, {
+  const res = await fetch(`${baseUrl}/contents/generations/tasks/${input.externalTaskId}`, {
     headers: { Authorization: `Bearer ${apiKey}` }
   });
 
@@ -203,23 +178,23 @@ export async function pollSeedanceVideoTask(
     return { ...input, status: "failed", errorMessage: `Seedance poll non-JSON: ${text.slice(0, 100)}` };
   }
 
-  // Ark status: "completed" | "in_progress" | "failed" | "cancelled" | "queued"
+  // Ark task status: "succeeded" | "running" | "failed" | "cancelled" | "queued"
   const status: string = (data?.status || "").toLowerCase();
 
-  if (status === "completed") {
+  if (status === "succeeded" || status === "completed") {
     const videoUrl = extractVideoUrl(data);
     if (!videoUrl) {
       return {
         ...input,
         status: "failed",
-        errorMessage: `Seedance completed but no video_url found. Raw: ${text.slice(0, 300)}`
+        errorMessage: `Seedance succeeded but no video_url found. Raw: ${text.slice(0, 300)}`
       };
     }
     return { ...input, status: "completed", videoUrl, rawStatus: status, raw: data };
   }
 
   if (status === "failed" || status === "cancelled") {
-    const reason = data?.error?.message || data?.last_error?.message || status;
+    const reason = data?.error?.message || data?.failure_reason || status;
     return {
       ...input,
       status: "failed",
@@ -228,11 +203,10 @@ export async function pollSeedanceVideoTask(
     };
   }
 
-  // in_progress / queued / 其他
   return { ...input, status: "pending", rawStatus: status };
 }
 
-/** 阻塞式 poll（用于 legacy 单 provider 路径）*/
+/** 阻塞式 poll（用于本地测试）*/
 export async function generateSeedanceVideo(
   input: GenerateVideoInput
 ): Promise<{ videoUrl: string; taskId: string; model: string }> {
