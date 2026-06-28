@@ -28,9 +28,24 @@ function shouldFallbackToPlaceholder() {
   return process.env.IMAGE_PROVIDER_FALLBACK_TO_PLACEHOLDER !== "false";
 }
 
-function getImageSize(kind: GenerateImageInput["kind"]) {
-  if (kind === "cover" || kind === "title_card") return "1024x1536";
-  return process.env.IMAGE_SIZE || "1024x1536";
+const GPT_IMAGE_VALID_SIZES = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
+const DALLE3_VALID_SIZES = new Set(["1024x1024", "1792x1024", "1024x1792"]);
+
+function getImageSize(kind: GenerateImageInput["kind"]): string {
+  const model = process.env.IMAGE_MODEL || "gpt-image-1";
+  const isDalle3 = model === "dall-e-3";
+  const envSize = process.env.IMAGE_SIZE;
+
+  if (kind === "cover" || kind === "title_card") {
+    return isDalle3 ? "1024x1792" : "1024x1536";
+  }
+  if (envSize) {
+    // Validate and correct size based on model
+    if (!isDalle3 && !GPT_IMAGE_VALID_SIZES.has(envSize)) return "1024x1536";
+    if (isDalle3 && !DALLE3_VALID_SIZES.has(envSize)) return "1024x1792";
+    return envSize;
+  }
+  return isDalle3 ? "1024x1792" : "1024x1536";
 }
 
 function getDataUrlMime(dataUrl: string) {
@@ -126,7 +141,7 @@ async function generateWithOpenAICompatible(
       model,
       prompt: buildImagePrompt(input.prompt, input.kind),
       size: getImageSize(input.kind),
-      quality: model === "dall-e-3" ? "hd" : undefined,
+      quality: model === "dall-e-3" ? "hd" : model.startsWith("gpt-image") ? "high" : undefined,
       style: model === "dall-e-3" ? "vivid" : undefined,
       n: 1
     })

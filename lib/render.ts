@@ -91,14 +91,40 @@ async function downloadToFile(url: string, filePath: string) {
   return filePath;
 }
 
-function buildConcatFilter(clipCount: number, aspectRatio: string) {
+function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations?: number[]) {
   const { width, height } = getRenderSize(aspectRatio);
   const normalizedClips = Array.from({ length: clipCount }, (_, index) => {
     return `[${index}:v:0]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${index}]`;
   });
-  const concatInputs = Array.from({ length: clipCount }, (_, index) => `[v${index}]`).join("");
 
-  return `${normalizedClips.join(";")};${concatInputs}concat=n=${clipCount}:v=1:a=0[vout]`;
+  const transitionStyle = process.env.VIDEO_TRANSITION || "fade";
+  const transitionDuration = Number(process.env.VIDEO_TRANSITION_DURATION_S || 0.4);
+  const useTransitions =
+    transitionStyle !== "none" &&
+    transitionDuration > 0 &&
+    clipCount > 1 &&
+    clipDurations &&
+    clipDurations.length === clipCount;
+
+  if (!useTransitions) {
+    const concatInputs = Array.from({ length: clipCount }, (_, i) => `[v${i}]`).join("");
+    return `${normalizedClips.join(";")};${concatInputs}concat=n=${clipCount}:v=1:a=0[vout]`;
+  }
+
+  // Chain xfade transitions between normalized clips
+  let filter = normalizedClips.join(";");
+  let prevLabel = "v0";
+  let timeOffset = 0;
+
+  for (let i = 1; i < clipCount; i++) {
+    const offset = timeOffset + clipDurations[i - 1] - transitionDuration;
+    const outLabel = i === clipCount - 1 ? "vout" : `xf${i}`;
+    filter += `;[${prevLabel}][v${i}]xfade=transition=${transitionStyle}:duration=${transitionDuration}:offset=${Math.max(0, offset).toFixed(3)}[${outLabel}]`;
+    prevLabel = outLabel;
+    timeOffset += clipDurations[i - 1] - transitionDuration;
+  }
+
+  return filter;
 }
 
 export async function runRenderWorkflow(projectId: string) {
@@ -285,6 +311,11 @@ export async function runRenderWorkflow(projectId: string) {
     localClips.push(await downloadToFile(clip.url, filePath));
   }
 
+  // Clip durations for xfade transitions (scene-level if available, else uniform)
+  const clipDurations: number[] = hasSceneTimeline
+    ? completedScenes.map((s: RenderSceneItem) => s.durationSeconds || 5)
+    : [project.durationSeconds];
+
   // 等待背景音乐（Suno 异步生成，最多等 90s）
   let musicLocalPath: string | null = null;
   const refreshedProject = await db.project.findUnique({
@@ -334,7 +365,7 @@ export async function runRenderWorkflow(projectId: string) {
     ffmpegArgs.push("-i", musicLocalPath);
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
       "-map", "[vout]",
       "-map", "[aout]",
       "-c:v", "libx264",
@@ -348,7 +379,7 @@ export async function runRenderWorkflow(projectId: string) {
   } else {
     ffmpegArgs.push(
       "-filter_complex",
-      buildConcatFilter(localClips.length, project.aspectRatio),
+      buildConcatFilter(localClips.length, project.aspectRatio, clipDurations),
       "-map", "[vout]",
       "-map", `${voiceIdx}:a:0`,
       "-c:v", "libx264",
