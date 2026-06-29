@@ -17,7 +17,7 @@ import {
 } from "./queues/video-queue";
 import { createDirectorAssets } from "./director-assets";
 import { assessSceneVideoQuality, shouldBlockLowQualityScenes } from "./quality";
-import { extractSceneQaFrame } from "./video-qa";
+import { extractSceneQaFrame, extractLastFrame } from "./video-qa";
 
 type SceneStatusItem = {
   status: string;
@@ -352,18 +352,28 @@ export async function runProjectWorkflow(projectId: string) {
       }
     }
 
-    // 并行场景生成：默认 stagger=0（同时入队）
-    // 仅在 HeyGen 或明确设置 SCENE_STAGGER_MS 时错开，防止外部 API 限流
+    // I2V Chain 模式：只入队第一个场景，后续场景由前一个完成时触发
+    // 普通模式：并行入队所有场景（stagger 防限流）
     const videoProvider = process.env.VIDEO_PROVIDER || "mock";
-    const defaultStagger = videoProvider === "heygen" ? 3000 : 0;
-    const staggerMs = Number(process.env.SCENE_STAGGER_MS ?? defaultStagger);
-    await Promise.all(
-      createdScenes.map((scene: { id: string }, i: number) =>
-        enqueueSceneVideo(scene.id, "workflow", {
-          delay: i * staggerMs
-        })
-      )
-    );
+    const i2vChain = process.env.I2V_CHAIN === "true";
+
+    if (i2vChain) {
+      const firstScene = createdScenes[0] as { id: string } | undefined;
+      if (firstScene) {
+        await enqueueSceneVideo(firstScene.id, "workflow");
+        console.log(`[i2v-chain] Enqueued only scene 1 of ${createdScenes.length}; rest triggered sequentially`);
+      }
+    } else {
+      const defaultStagger = videoProvider === "heygen" ? 3000 : 0;
+      const staggerMs = Number(process.env.SCENE_STAGGER_MS ?? defaultStagger);
+      await Promise.all(
+        createdScenes.map((scene: { id: string }, i: number) =>
+          enqueueSceneVideo(scene.id, "workflow", {
+            delay: i * staggerMs
+          })
+        )
+      );
+    }
 
     return db.project.findUniqueOrThrow({
       where: {
@@ -535,7 +545,61 @@ async function completeSceneVideo(input: {
 
   await updateProjectVideoAggregate(scene.projectId);
 
+  // I2V Chain: extract last frame → seed next scene as image-to-video
+  if (process.env.I2V_CHAIN === "true" && updatedScene.status === "completed") {
+    try {
+      const lastFrame = await extractLastFrame({
+        projectId: scene.projectId,
+        sceneId: scene.id,
+        sceneIndex: scene.sceneIndex,
+        videoUrl: videoResult.videoUrl
+      });
+
+      if (lastFrame) {
+        // Find the next scene by sceneIndex
+        const nextScene = await db.scene.findFirst({
+          where: {
+            projectId: scene.projectId,
+            sceneIndex: scene.sceneIndex + 1,
+            status: "pending"
+          }
+        });
+
+        if (nextScene) {
+          // Seed next scene with this clip's last frame as its first frame
+          await db.scene.update({
+            where: { id: nextScene.id },
+            data: { firstFrameUrl: lastFrame.url }
+          });
+          // Enqueue next scene now that its seed frame is ready
+          await enqueueSceneVideo(nextScene.id, "workflow");
+          console.log(`[i2v-chain] Scene ${scene.sceneIndex} → seeded scene ${nextScene.sceneIndex} with last frame`);
+        }
+      }
+    } catch (err) {
+      console.warn("[i2v-chain] Failed to extract/seed last frame (non-fatal):", err);
+    }
+  }
+
   return updatedScene;
+}
+
+// Prefix every video prompt with protagonist/wardrobe from visualBible so T2V models
+// see the same character description on each independent call (方案B 连续性保底)
+function buildEnrichedVideoPrompt(
+  rawPrompt: string,
+  visualBible: Record<string, unknown> | null | undefined,
+  aspectRatio: string
+): string {
+  if (!visualBible) return rawPrompt;
+  const parts: string[] = [];
+  if (visualBible.protagonist) parts.push(`Character: ${visualBible.protagonist}`);
+  if (visualBible.wardrobe) parts.push(`Wardrobe: ${visualBible.wardrobe}`);
+  if (visualBible.coreSetting) parts.push(`Setting: ${visualBible.coreSetting}`);
+  if (visualBible.colorAndLight) parts.push(`Lighting: ${visualBible.colorAndLight}`);
+  const prefix = parts.join(". ");
+  const suffix = `Vertical ${aspectRatio}, realistic documentary style, same protagonist as previous scenes.`;
+  return prefix ? `${prefix}. ${rawPrompt} ${suffix}`.trim() : rawPrompt;
 }
 
 export async function runSceneVideoWorkflow(sceneId: string) {
@@ -557,8 +621,13 @@ export async function runSceneVideoWorkflow(sceneId: string) {
     ? ((scene.project as any).avatarId ?? undefined)
     : undefined;
 
+  // Enrich the video prompt with visualBible protagonist/wardrobe for cross-scene consistency
+  const rawPrompt = scene.videoPrompt || scene.visualPrompt || "";
+  const visualBibleMeta = (scene.project as any).visualBibleJson as Record<string, unknown> | null | undefined;
+  const enrichedPrompt = buildEnrichedVideoPrompt(rawPrompt, visualBibleMeta, scene.project.aspectRatio);
+
   const taskInput = {
-    prompt: scene.videoPrompt || scene.visualPrompt,
+    prompt: enrichedPrompt,
     durationSeconds: scene.durationSeconds,
     aspectRatio: scene.project.aspectRatio,
     referenceImageUrl: scene.referenceImageUrl || undefined,
