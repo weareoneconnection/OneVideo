@@ -30,6 +30,9 @@ export type GenerateVideoInput = {
   referenceImageUrl?: string;
   firstFrameUrl?: string;
   continuityAnchor?: string;
+  overrideProvider?: string;   // per-project override (e.g. "heygen" when avatarEnabled)
+  avatarId?: string;           // HeyGen avatar ID
+  voiceover?: string;          // HeyGen TTS script
 };
 
 export type GenerateVideoResult = {
@@ -529,18 +532,20 @@ async function createVideoTaskForProvider(
 
   if (provider === "heygen") {
     const { createHeyGenVideoTask } = await import("./providers/heygen");
-    const { db } = await import("./db");
-    const project = await db.project.findUnique({
-      where: { id: input.projectId },
-      select: { avatarId: true }
-    });
-    const avatarId = project?.avatarId;
+    // avatarId/voiceover can come from input (passed by workflow) or fetched from DB
+    let avatarId = input.avatarId;
+    let voiceover = input.voiceover;
+    if (!avatarId || !voiceover) {
+      const { db } = await import("./db");
+      const [project, scene] = await Promise.all([
+        db.project.findUnique({ where: { id: input.projectId }, select: { avatarId: true } }),
+        db.scene.findUnique({ where: { id: input.sceneId }, select: { voiceover: true } })
+      ]);
+      avatarId = avatarId || project?.avatarId || undefined;
+      voiceover = voiceover || scene?.voiceover || undefined;
+    }
     if (!avatarId) throw new Error("HeyGen requires avatarId on project");
-    const scene = await db.scene.findUnique({
-      where: { id: input.sceneId },
-      select: { voiceover: true }
-    });
-    return createHeyGenVideoTask({ ...input, avatarId, voiceover: scene?.voiceover ?? undefined });
+    return createHeyGenVideoTask({ ...input, avatarId, voiceover });
   }
 
   if (provider === "seedance") {
@@ -563,10 +568,13 @@ async function createVideoTaskForProvider(
 export async function createVideoTaskForScene(
   input: GenerateVideoInput
 ): Promise<CreateVideoTaskResult> {
-  const chain = (process.env.VIDEO_PROVIDER_FALLBACK_CHAIN || process.env.VIDEO_PROVIDER || "mock")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  // per-project override takes precedence (e.g. avatarEnabled → heygen)
+  const chain = input.overrideProvider
+    ? [input.overrideProvider]
+    : (process.env.VIDEO_PROVIDER_FALLBACK_CHAIN || process.env.VIDEO_PROVIDER || "mock")
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
 
   let lastError: Error | undefined;
   for (const provider of chain) {

@@ -315,11 +315,16 @@ export async function runProjectWorkflow(projectId: string) {
     });
 
     // 启动背景音乐生成（与 scene 视频并行）
-    const musicProvider = process.env.MUSIC_PROVIDER;
+    // 优先看 project.musicEnabled（用户在 UI 勾选），其次看全局 MUSIC_PROVIDER env
+    const projectMusicEnabled = (project as any).musicEnabled === true;
+    const musicProvider = projectMusicEnabled
+      ? (process.env.MUSIC_PROVIDER || "suno")   // 用户勾选时默认用 suno
+      : process.env.MUSIC_PROVIDER;
     if (musicProvider && musicProvider !== "none") {
       try {
         const { buildMusicPrompt, getFreesoundFallbackUrl, createSunoMusic } = await import("./providers/suno");
-        const musicPrompt = buildMusicPrompt({
+        // musicPrompt 优先用 project 里存的（用户自定义），否则 AI 生成
+        const musicPrompt = (project as any).musicPrompt || buildMusicPrompt({
           topic: project.topic,
           style: project.style,
           platform: project.platform,
@@ -539,6 +544,13 @@ export async function runSceneVideoWorkflow(sceneId: string) {
 
   const taskStartedAt = new Date();
   const taskStartedMs = Date.now();
+
+  // avatarEnabled 时强制使用 heygen provider，忽略全局 VIDEO_PROVIDER
+  const avatarEnabled = (scene.project as any).avatarEnabled === true;
+  const avatarId: string | undefined = avatarEnabled
+    ? ((scene.project as any).avatarId ?? undefined)
+    : undefined;
+
   const taskInput = {
     prompt: scene.videoPrompt || scene.visualPrompt,
     durationSeconds: scene.durationSeconds,
@@ -547,7 +559,10 @@ export async function runSceneVideoWorkflow(sceneId: string) {
     firstFrameUrl: scene.firstFrameUrl || scene.imageUrl || undefined,
     continuityAnchor: scene.continuityAnchor || undefined,
     entryState: scene.entryState || undefined,
-    exitState: scene.exitState || undefined
+    exitState: scene.exitState || undefined,
+    overrideProvider: avatarEnabled ? "heygen" : undefined,
+    avatarId,
+    voiceover: scene.voiceover || undefined
   };
 
   await db.scene.update({
