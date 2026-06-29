@@ -118,6 +118,7 @@ export function ProjectStatusView({
   const [publishModalOpen, setPublishModalOpen] = useState(false);
 
   const isTerminal = TERMINAL_STATUSES.has(project.status);
+  const [retryingAll, setRetryingAll] = useState(false);
   const script = project.scriptJson || {};
   const sceneClips = project.scenes.filter((scene: ProjectSceneItem) => scene.videoUrl);
   const subtitleAsset = project.assets.find((asset: ProjectAssetItem) => asset.type === "subtitle");
@@ -245,6 +246,21 @@ export function ProjectStatusView({
     }
   }
 
+  async function retryAllFailed() {
+    setRetryingAll(true);
+    setActionError("");
+    try {
+      await Promise.all(failedScenes.map((s: ProjectSceneItem) =>
+        fetch(`/api/scenes/${s.id}/retry`, { method: "POST" })
+      ));
+      await refreshProject();
+    } catch {
+      setActionError("Batch retry failed.");
+    } finally {
+      setRetryingAll(false);
+    }
+  }
+
   async function renderProject() {
     setRendering(true);
     setActionError("");
@@ -299,6 +315,19 @@ export function ProjectStatusView({
     return () => window.clearInterval(timer);
   }, [project.id, isTerminal]);
 
+  // 分步进度 steps
+  const steps = [
+    { key: "script",    label: "生成脚本",   done: !!project.scriptJson },
+    { key: "storyboard",label: "生成分镜",   done: project.scenes.length > 0 },
+    { key: "clips",     label: `视频片段 ${sceneClips.length}/${project.scenes.length || "?"}`,
+                                             done: allScenesCompleted },
+    { key: "render",    label: "合成输出",   done: !!project.finalVideoUrl },
+  ];
+  const currentStep = steps.findIndex(s => !s.done);
+  const estimatedRemaining = !isTerminal && project.scenes.length > 0
+    ? Math.ceil((project.scenes.length - sceneClips.length) * 4) // ~4 min/clip
+    : null;
+
   return (
     <main className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 py-6 sm:py-10 lg:grid-cols-12">
       <section className="lg:col-span-8">
@@ -308,102 +337,126 @@ export function ProjectStatusView({
               <h1 className="text-3xl font-bold">{project.title || "Untitled Video"}</h1>
               <p className="mt-3 text-muted">{project.topic}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <StatusPill status={project.status} />
               {canRenderProject && (
-                <button
-                  onClick={renderProject}
-                  disabled={rendering}
-                  className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium disabled:opacity-60"
-                >
+                <button onClick={renderProject} disabled={rendering}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60 transition-colors">
                   <RefreshCw className={`h-4 w-4 ${rendering ? "animate-spin" : ""}`} />
-                  {project.finalVideoUrl && !legacyVideoReady ? "Re-render MP4" : "Render MP4"}
+                  {project.finalVideoUrl ? "重新渲染" : "合成 MP4"}
+                </button>
+              )}
+              {failedScenes.length > 1 && (
+                <button onClick={retryAllFailed} disabled={retryingAll}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-60 transition-colors">
+                  <RefreshCw className={`h-4 w-4 ${retryingAll ? "animate-spin" : ""}`} />
+                  重试全部失败 ({failedScenes.length})
                 </button>
               )}
               {isTerminal && (
-                <button
-                  onClick={retryProject}
-                  disabled={retrying}
-                  className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium disabled:opacity-60"
-                >
+                <button onClick={retryProject} disabled={retrying}
+                  className="inline-flex items-center gap-2 rounded-xl border border-line px-3 py-2 text-sm font-medium disabled:opacity-60">
                   <RefreshCw className={`h-4 w-4 ${retrying ? "animate-spin" : ""}`} />
-                  {project.status === "failed" ? "Retry" : "Regenerate"}
+                  {project.status === "failed" ? "重新生成" : "再次生成"}
                 </button>
               )}
             </div>
           </div>
 
+          {/* 分步进度追踪 */}
           <div className="mt-6">
+            <div className="flex items-center gap-0">
+              {steps.map((step, i) => (
+                <div key={step.key} className="flex flex-1 items-center">
+                  <div className="flex flex-col items-center gap-1 flex-1">
+                    <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all
+                      ${step.done ? "bg-emerald-500 text-white" :
+                        i === currentStep && !isTerminal ? "bg-violet-500 text-white animate-pulse" :
+                        project.status === "failed" && i === currentStep ? "bg-red-500 text-white" :
+                        "bg-soft text-muted"}`}>
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <span className={`text-xs text-center leading-tight
+                      ${step.done ? "text-emerald-400" :
+                        i === currentStep ? "text-white" : "text-muted"}`}>
+                      {step.label}
+                    </span>
+                  </div>
+                  {i < steps.length - 1 && (
+                    <div className={`h-0.5 flex-1 mx-1 mb-4 rounded ${step.done ? "bg-emerald-500" : "bg-soft"}`} />
+                  )}
+                </div>
+              ))}
+            </div>
+            {estimatedRemaining && estimatedRemaining > 0 && (
+              <p className="mt-3 text-xs text-muted text-center">
+                预计还需约 {estimatedRemaining} 分钟
+              </p>
+            )}
+          </div>
+
+          {/* 进度条 */}
+          <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-muted">
               <span>{progressLabel}</span>
               <span>{progress}%</span>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-soft">
-              <div
-                className="h-full rounded-full bg-emerald-400 transition-all"
-                style={{ width: `${progress}%` }}
-              />
+              <div className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                style={{ width: `${progress}%` }} />
             </div>
-            {refreshing && <p className="mt-2 text-xs text-muted">Updating status...</p>}
-            {(isQueuedStale || isWorkerLikelyOffline) && (
-              <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
-                {isWorkerLikelyOffline
-                  ? "No active worker heartbeat detected."
-                  : `This job has been queued for ${queuedForSeconds}s.`}{" "}
-                Start <span className="font-mono">pnpm worker</span> in another terminal.
-              </p>
-            )}
-            {project.errorMessage && (
-              <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
-                {project.errorMessage}
-              </p>
-            )}
-            {actionError && (
-              <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
-                {actionError}
-              </p>
-            )}
+            {refreshing && <p className="mt-2 text-xs text-muted">刷新中...</p>}
           </div>
+
+          {/* 告警 */}
+          {(isQueuedStale || isWorkerLikelyOffline) && (
+            <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              {isWorkerLikelyOffline ? "未检测到 Worker 心跳。" : `已排队 ${queuedForSeconds}s。`}{" "}
+              请在终端运行 <span className="font-mono">pnpm worker</span>。
+            </p>
+          )}
+          {project.errorMessage && (
+            <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+              <span className="font-semibold">错误：</span>{project.errorMessage}
+            </div>
+          )}
+          {actionError && (
+            <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">{actionError}</p>
+          )}
 
           {project.finalVideoUrl && (
             <div className="mt-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-                <span className="text-sm font-medium text-muted">最终视频</span>
-                <div className="flex flex-wrap gap-2">
-                  <a
-                    href={project.finalVideoUrl}
-                    download
-                    className="rounded-xl border border-line bg-soft px-4 py-2 text-sm hover:border-zinc-400 transition-colors"
-                  >
-                    下载
-                  </a>
-                  <SaveTemplateButton projectId={project.id} />
-                  <button
-                    onClick={() => setPublishModalOpen(true)}
-                    className="rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-colors font-semibold"
-                  >
-                    🚀 一键发布
-                  </button>
-                </div>
+              <div className="overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
+                <video
+                  className="max-h-[720px] w-full object-contain"
+                  src={project.finalVideoUrl}
+                  controls
+                  autoPlay={false}
+                  poster={project.thumbnailUrl || undefined}
+                >
+                  {subtitleAsset?.url && (
+                    <track kind="subtitles" src={subtitleAsset.url}
+                      srcLang={project.language === "zh" ? "zh" : "en"}
+                      label={project.language === "zh" ? "中文" : "English"} default />
+                  )}
+                </video>
               </div>
-            <div className="overflow-hidden rounded-2xl bg-black">
-              <video
-                className="max-h-[680px] w-full object-contain"
-                src={project.finalVideoUrl}
-                controls
-                poster={project.thumbnailUrl || undefined}
-              >
-                {subtitleAsset?.url && (
-                  <track
-                    kind="subtitles"
-                    src={subtitleAsset.url}
-                    srcLang={project.language === "zh" ? "zh" : "en"}
-                    label={project.language === "zh" ? "中文" : "English"}
-                    default
-                  />
-                )}
-              </video>
-            </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a href={project.finalVideoUrl} download
+                  className="rounded-xl border border-line bg-soft px-4 py-2 text-sm hover:border-zinc-400 transition-colors">
+                  ⬇ 下载 MP4
+                </a>
+                <SaveTemplateButton projectId={project.id} />
+                <button onClick={() => setPublishModalOpen(true)}
+                  className="rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-colors font-semibold">
+                  🚀 一键发布
+                </button>
+                <button onClick={renderProject} disabled={rendering}
+                  className="ml-auto rounded-xl border border-line px-4 py-2 text-sm text-muted hover:border-zinc-400 transition-colors disabled:opacity-50">
+                  <RefreshCw className={`inline h-3.5 w-3.5 mr-1 ${rendering ? "animate-spin" : ""}`} />
+                  重新渲染
+                </button>
+              </div>
             </div>
           )}
 
@@ -435,102 +488,109 @@ export function ProjectStatusView({
 
         <div className="mt-6 rounded-3xl border border-line bg-panel p-5">
           <h2 className="text-2xl font-bold">Scene Timeline</h2>
-          <div className="mt-5 space-y-4">
-            {project.scenes.map((scene: ProjectSceneItem) => (
-              <div key={scene.id} className="rounded-2xl border border-line bg-soft p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="font-semibold">Scene {scene.sceneIndex}</h3>
+          {failedScenes.length > 0 && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-100">
+              <span>⚠ {failedScenes.length} 个场景生成失败</span>
+              <button onClick={retryAllFailed} disabled={retryingAll}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-400/30 px-3 py-1 text-xs font-medium hover:bg-red-500/20 disabled:opacity-60">
+                <RefreshCw className={`h-3 w-3 ${retryingAll ? "animate-spin" : ""}`} />
+                一键重试
+              </button>
+            </div>
+          )}
+          {reviewScenes.length > 0 && (
+            <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              🔍 {reviewScenes.length} 个场景质量待审核，可单独重试提升画质。
+            </p>
+          )}
+
+          <div className="mt-5 space-y-3">
+            {project.scenes.map((scene: ProjectSceneItem) => {
+              const isFailed = scene.status === "failed";
+              const isReview = scene.status === "needs_review" || scene.reviewStatus === "needs_review";
+              const isPending = scene.status === "pending" || scene.status === "queued";
+              const isGenerating = scene.status === "generating_video" || scene.status === "polling_video";
+              return (
+              <div key={scene.id} className={`rounded-2xl border p-4 transition-colors
+                ${isFailed ? "border-red-500/30 bg-red-500/5" :
+                  isReview ? "border-amber-500/30 bg-amber-500/5" :
+                  scene.status === "completed" ? "border-emerald-500/20 bg-soft" :
+                  "border-line bg-soft"}`}>
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    {(scene.status === "failed" ||
-                      scene.status === "needs_review" ||
-                      scene.reviewStatus === "needs_review") && (
-                      <button
-                        onClick={() => retryScene(scene.id)}
-                        disabled={retryingSceneId === scene.id}
-                        className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-1 text-xs font-medium disabled:opacity-60"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${retryingSceneId === scene.id ? "animate-spin" : ""}`} />
-                        Retry
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold
+                      ${scene.status === "completed" ? "bg-emerald-500 text-white" :
+                        isFailed ? "bg-red-500 text-white" :
+                        isGenerating ? "bg-violet-500 text-white animate-pulse" :
+                        "bg-soft text-muted border border-line"}`}>
+                      {scene.status === "completed" ? "✓" : isFailed ? "✗" : scene.sceneIndex}
+                    </span>
+                    <h3 className="font-semibold text-sm">场景 {scene.sceneIndex}</h3>
+                    {scene.mood && <span className="rounded-full bg-soft px-2 py-0.5 text-xs text-muted">{scene.mood}</span>}
+                    <span className="text-xs text-muted">{scene.durationSeconds}s</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(isFailed || isReview) && (
+                      <button onClick={() => retryScene(scene.id)} disabled={retryingSceneId === scene.id}
+                        className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs font-medium disabled:opacity-60 hover:bg-soft">
+                        <RefreshCw className={`h-3 w-3 ${retryingSceneId === scene.id ? "animate-spin" : ""}`} />
+                        重试
                       </button>
                     )}
-                    {scene.videoUrl &&
-                      (scene.status === "needs_review" ||
-                        scene.reviewStatus === "needs_review") && (
-                        <button
-                          onClick={() => approveScene(scene.id)}
-                          disabled={approvingSceneId === scene.id}
-                          className="inline-flex items-center gap-2 rounded-lg border border-line px-3 py-1 text-xs font-medium disabled:opacity-60"
-                        >
-                          Approve
-                        </button>
-                      )}
+                    {scene.videoUrl && isReview && (
+                      <button onClick={() => approveScene(scene.id)} disabled={approvingSceneId === scene.id}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 disabled:opacity-60">
+                        通过
+                      </button>
+                    )}
                     <StatusPill status={scene.status} />
                   </div>
                 </div>
-                {!scene.videoUrl && scene.firstFrameUrl && (
-                  <div className="mt-4 overflow-hidden rounded-xl bg-black">
-                    <img
-                      className="max-h-[420px] w-full object-contain"
-                      src={scene.firstFrameUrl}
-                      alt={`Scene ${scene.sceneIndex} first frame`}
-                    />
+
+                {scene.videoUrl ? (
+                  <div className="mt-3 overflow-hidden rounded-xl bg-black">
+                    <video className="max-h-[480px] w-full object-contain" src={scene.videoUrl}
+                      controls poster={scene.imageUrl || undefined} />
+                  </div>
+                ) : scene.firstFrameUrl ? (
+                  <div className="mt-3 overflow-hidden rounded-xl bg-black">
+                    <img className="max-h-[360px] w-full object-contain"
+                      src={scene.firstFrameUrl} alt={`场景 ${scene.sceneIndex} 参考帧`} />
+                  </div>
+                ) : isPending ? (
+                  <div className="mt-3 flex h-16 items-center justify-center rounded-xl bg-black/40 text-xs text-muted">
+                    等待生成...
+                  </div>
+                ) : isGenerating ? (
+                  <div className="mt-3 flex h-16 items-center justify-center rounded-xl bg-violet-500/5 border border-violet-500/20 text-xs text-violet-300">
+                    <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    AI 正在生成视频...
+                  </div>
+                ) : null}
+
+                {scene.errorMessage && (
+                  <div className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
+                    <span className="font-semibold">失败原因：</span>{scene.errorMessage}
                   </div>
                 )}
-                {scene.videoUrl && (
-                  <div className="mt-4 overflow-hidden rounded-xl bg-black">
-                    <video
-                      className="max-h-[520px] w-full object-contain"
-                      src={scene.videoUrl}
-                      controls
-                      poster={scene.imageUrl || undefined}
-                    />
-                  </div>
-                )}
-                <p className="mt-3 text-sm text-zinc-200">{scene.voiceover}</p>
-                <p className="mt-3 text-xs text-muted">
-                  <span className="text-zinc-300">Prompt:</span>{" "}
-                  {scene.videoPrompt || scene.visualPrompt}
-                </p>
-                <div className="mt-3 grid gap-3 text-xs text-muted md:grid-cols-3">
-                  <span>Duration: {scene.durationSeconds}s</span>
-                  <span>Provider: {scene.provider || "-"}</span>
-                  <span>Model: {scene.model || "-"}</span>
-                  <span>Quality: {scene.qualityScore ?? "-"}</span>
-                  <span>Review: {scene.reviewStatus || "-"}</span>
-                  <span>Anchor: {scene.continuityAnchor ? "yes" : "-"}</span>
-                </div>
-                {(scene.entryState || scene.exitState) && (
-                  <div className="mt-3 grid gap-2 rounded-xl border border-line p-3 text-xs text-muted md:grid-cols-2">
-                    <span>Entry: {scene.entryState || "-"}</span>
-                    <span>Exit: {scene.exitState || "-"}</span>
-                  </div>
-                )}
-                {scene.qualityNotes && (
-                  <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-100">
+                {scene.qualityNotes && !scene.errorMessage && (
+                  <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-2 text-xs text-amber-100">
                     {scene.qualityNotes}
                   </p>
                 )}
-                {scene.errorMessage && (
-                  <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
-                    {scene.errorMessage}
-                  </p>
-                )}
+                <p className="mt-2 text-xs text-muted line-clamp-2">{scene.voiceover}</p>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-zinc-600">
+                  {scene.provider && <span>{scene.provider}</span>}
+                  {scene.qualityScore != null && <span>质量 {scene.qualityScore}</span>}
+                  {scene.continuityAnchor && <span className="truncate max-w-[200px]">{scene.continuityAnchor}</span>}
+                </div>
               </div>
-            ))}
+              );
+            })}
             {project.scenes.length === 0 && (
-              <p className="rounded-2xl border border-line bg-soft p-4 text-sm text-muted">
-                Waiting for storyboard scenes.
-              </p>
-            )}
-            {failedScenes.length > 0 && (
-              <p className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-100">
-                {failedScenes.length} scene failed. Retry the failed scene instead of regenerating the whole project.
-              </p>
-            )}
-            {reviewScenes.length > 0 && (
-              <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                {reviewScenes.length} scene needs review. Retry that scene to improve continuity or quality.
-              </p>
+              <div className="flex h-20 items-center justify-center rounded-2xl border border-line bg-soft text-sm text-muted">
+                等待生成分镜脚本...
+              </div>
             )}
           </div>
         </div>

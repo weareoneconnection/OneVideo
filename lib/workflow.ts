@@ -352,12 +352,18 @@ export async function runProjectWorkflow(projectId: string) {
       }
     }
 
-    const staggerMs = Number(process.env.SCENE_STAGGER_MS || 5000);
-    for (let i = 0; i < createdScenes.length; i++) {
-      await enqueueSceneVideo(createdScenes[i].id, "workflow", {
-        delay: i * staggerMs
-      });
-    }
+    // 并行场景生成：默认 stagger=0（同时入队）
+    // 仅在 HeyGen 或明确设置 SCENE_STAGGER_MS 时错开，防止外部 API 限流
+    const videoProvider = process.env.VIDEO_PROVIDER || "mock";
+    const defaultStagger = videoProvider === "heygen" ? 3000 : 0;
+    const staggerMs = Number(process.env.SCENE_STAGGER_MS ?? defaultStagger);
+    await Promise.all(
+      createdScenes.map((scene: { id: string }, i: number) =>
+        enqueueSceneVideo(scene.id, "workflow", {
+          delay: i * staggerMs
+        })
+      )
+    );
 
     return db.project.findUniqueOrThrow({
       where: {
