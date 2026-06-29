@@ -12,6 +12,7 @@ import { publishProjectFile } from "./storage-provider";
 import { generateSpeech } from "./tts-provider";
 import { transcribeAudio, estimateWordTimestamps } from "./whisper";
 import { buildSubtitleFile, getSubtitleBurnFilter, type SubtitleStyle } from "./subtitle-renderer";
+import { generateSceneSfx, mixSfxUnderVoiceover } from "./providers/sfx";
 
 const execFileAsync = promisify(execFile);
 
@@ -91,7 +92,23 @@ async function downloadToFile(url: string, filePath: string) {
   return filePath;
 }
 
-function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations?: number[]) {
+// 根据场景 mood 和对话密度计算节奏转场时长
+// 高密度对话（≥3行）→ 快切 0.15s；高潮/动作 mood → 0.2s；正常 → 0.4s
+function getRhythmTransitionDuration(
+  sceneIdx: number,
+  moods: string[],
+  dialogueCounts: number[]
+): number {
+  const base = Number(process.env.VIDEO_TRANSITION_DURATION_S || 0.4);
+  const mood = (moods[sceneIdx] || "").toLowerCase();
+  const dialogueCount = dialogueCounts[sceneIdx] || 0;
+  if (dialogueCount >= 3) return Math.min(base, 0.15);
+  if (/action|conflict|climax|高潮|冲突|激烈/.test(mood)) return Math.min(base, 0.2);
+  if (/calm|slow|tender|温柔|平静|感动/.test(mood)) return Math.max(base, 0.6);
+  return base;
+}
+
+function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations?: number[], sceneMeta?: { moods: string[]; dialogueCounts: number[] }) {
   const { width, height } = getRenderSize(aspectRatio);
   const normalizedClips = Array.from({ length: clipCount }, (_, index) => {
     return `[${index}:v:0]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${index}]`;
@@ -111,17 +128,20 @@ function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations
     return `${normalizedClips.join(";")};${concatInputs}concat=n=${clipCount}:v=1:a=0[vout]`;
   }
 
-  // Chain xfade transitions between normalized clips
+  // Chain xfade transitions with rhythm-aware durations
   let filter = normalizedClips.join(";");
   let prevLabel = "v0";
   let timeOffset = 0;
 
   for (let i = 1; i < clipCount; i++) {
-    const offset = timeOffset + clipDurations[i - 1] - transitionDuration;
+    const tDur = sceneMeta
+      ? getRhythmTransitionDuration(i - 1, sceneMeta.moods, sceneMeta.dialogueCounts)
+      : transitionDuration;
+    const offset = timeOffset + clipDurations[i - 1] - tDur;
     const outLabel = i === clipCount - 1 ? "vout" : `xf${i}`;
-    filter += `;[${prevLabel}][v${i}]xfade=transition=${transitionStyle}:duration=${transitionDuration}:offset=${Math.max(0, offset).toFixed(3)}[${outLabel}]`;
+    filter += `;[${prevLabel}][v${i}]xfade=transition=${transitionStyle}:duration=${tDur}:offset=${Math.max(0, offset).toFixed(3)}[${outLabel}]`;
     prevLabel = outLabel;
-    timeOffset += clipDurations[i - 1] - transitionDuration;
+    timeOffset += clipDurations[i - 1] - tDur;
   }
 
   return filter;
@@ -332,6 +352,15 @@ export async function runRenderWorkflow(projectId: string) {
     ? completedScenes.map((s: RenderSceneItem) => s.durationSeconds || 5)
     : [project.durationSeconds];
 
+  // Scene metadata for rhythm-aware transitions
+  const sceneMeta = hasSceneTimeline ? {
+    moods: completedScenes.map((s: RenderSceneItem) => (s as any).mood || ""),
+    dialogueCounts: completedScenes.map((s: RenderSceneItem) => {
+      const d = (s as any).dialogues;
+      return Array.isArray(d) ? d.length : 0;
+    })
+  } : undefined;
+
   // 等待背景音乐（Suno 异步生成，最多等 90s）
   let musicLocalPath: string | null = null;
   const refreshedProject = await db.project.findUnique({
@@ -364,6 +393,36 @@ export async function runRenderWorkflow(projectId: string) {
     }
   }
 
+  // AI SFX: generate mood-based sound effects and mix under voiceover
+  let sfxLocalPath: string | null = null;
+  if (process.env.SFX_ENABLED === "true" && hasSceneTimeline && completedScenes.length > 0) {
+    try {
+      const dominantMood = (completedScenes[0] as any).mood || "default";
+      const totalDuration = clipDurations.reduce((a: number, b: number) => a + b, 0);
+      const sfxPath = path.join(dir, "sfx.mp3");
+      await generateSceneSfx({ mood: dominantMood, durationSeconds: totalDuration, outputPath: sfxPath });
+      sfxLocalPath = sfxPath;
+    } catch (err) {
+      console.warn("[render] SFX generation failed, skipping:", err);
+    }
+  }
+
+  // Mix SFX under voiceover if available
+  let effectiveSpeechPath = speech.localPath;
+  if (sfxLocalPath) {
+    try {
+      const mixedPath = path.join(dir, "voiceover-with-sfx.mp3");
+      await mixSfxUnderVoiceover({
+        voiceoverPath: speech.localPath,
+        sfxPath: sfxLocalPath,
+        outputPath: mixedPath
+      });
+      effectiveSpeechPath = mixedPath;
+    } catch (err) {
+      console.warn("[render] SFX mixing failed, using plain voiceover:", err);
+    }
+  }
+
   const outputFilename = "final.mp4";
   const outputPath = path.join(dir, outputFilename);
   const ffmpegArgs = ["-y", "-hide_banner", "-loglevel", "error"];
@@ -373,7 +432,7 @@ export async function runRenderWorkflow(projectId: string) {
   }
 
   const voiceIdx = localClips.length;
-  ffmpegArgs.push("-i", speech.localPath);
+  ffmpegArgs.push("-i", effectiveSpeechPath);
 
   if (musicLocalPath) {
     const musicIdx = voiceIdx + 1;
@@ -381,7 +440,7 @@ export async function runRenderWorkflow(projectId: string) {
     ffmpegArgs.push("-i", musicLocalPath);
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
       "-map", "[vout]",
       "-map", "[aout]",
       "-c:v", "libx264",
@@ -395,7 +454,7 @@ export async function runRenderWorkflow(projectId: string) {
   } else {
     ffmpegArgs.push(
       "-filter_complex",
-      buildConcatFilter(localClips.length, project.aspectRatio, clipDurations),
+      buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta),
       "-map", "[vout]",
       "-map", `${voiceIdx}:a:0`,
       "-c:v", "libx264",

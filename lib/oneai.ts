@@ -937,3 +937,70 @@ Return strict JSON only.
     })
   }));
 }
+
+// ─── generateDialogueScript ──────────────────────────────────────────────────
+// 为每个分镜场景生成角色对话台词（短剧模式）
+export async function generateDialogueScript(input: {
+  scenes: import("./types").StoryboardScene[];
+  topic: string;
+  language: string;
+  characters?: string[];   // 角色名列表，e.g. ["主角", "女友"]
+}): Promise<import("./types").DialogueLine[][]> {
+  const isChinese = input.language === "zh" || input.language === "Chinese";
+  const client = new OneAIClient();
+
+  const characterList = input.characters?.length
+    ? input.characters
+    : isChinese ? ["主角", "配角", "旁白"] : ["Protagonist", "Supporting", "Narrator"];
+
+  const fallback = input.scenes.map(scene =>
+    [{ speaker: isChinese ? "旁白" : "Narrator", text: scene.voiceover, emotion: scene.mood || "neutral", durationSeconds: scene.durationSeconds }]
+  );
+
+  const result = await client.chatJSON<{ scenes: Array<{ sceneIndex: number; dialogues: import("./types").DialogueLine[] }> }>({
+    model: getOneAIModel(),
+    system: `
+You are a screenwriter for viral short dramas (短剧).
+Write realistic, emotionally driven dialogue — not narration.
+Each line should feel natural, spoken out loud, with tension or warmth.
+Return strict JSON only. No markdown, no code fences.
+
+JSON structure:
+{
+  "scenes": [
+    {
+      "sceneIndex": 1,
+      "dialogues": [
+        { "speaker": "角色名", "text": "台词内容", "emotion": "情绪", "durationSeconds": 2.5 }
+      ]
+    }
+  ]
+}
+
+Rules:
+- speaker must be one of: ${characterList.join(", ")}
+- emotion: one word, e.g. ${isChinese ? "疲惫|坚定|惊喜|愤怒|温柔|绝望|希望" : "tired|determined|surprised|angry|gentle|desperate|hopeful"}
+- durationSeconds: realistic speaking time (1 Chinese char ≈ 0.3s)
+- Each scene should have 1-4 dialogue lines matching the scene duration
+- Total dialogue durationSeconds per scene should ≈ scene durationSeconds
+- Write in ${isChinese ? "Chinese (Mandarin)" : "English"}
+- NO narration style — write as actual spoken lines between characters
+`.trim(),
+    prompt: `
+Topic: ${input.topic}
+Characters: ${characterList.join(", ")}
+
+Scenes to write dialogue for:
+${input.scenes.map(s => `Scene ${s.sceneIndex} (${s.durationSeconds}s): ${s.storyBeat || s.voiceover} | mood: ${s.mood}`).join("\n")}
+
+Write short, punchy dialogue for each scene. Each line max 20 characters for Chinese, 15 words for English.
+Return JSON only.
+`.trim(),
+    fallback: { scenes: input.scenes.map((s, i) => ({ sceneIndex: i + 1, dialogues: fallback[i] })) }
+  });
+
+  return input.scenes.map((scene, i) => {
+    const found = result.scenes?.find(s => Number(s.sceneIndex) === scene.sceneIndex);
+    return found?.dialogues?.length ? found.dialogues : fallback[i];
+  });
+}

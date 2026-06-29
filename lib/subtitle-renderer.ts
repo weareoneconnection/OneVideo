@@ -1,7 +1,8 @@
 import path from "node:path";
 import type { WordTimestamp } from "./whisper";
+import type { DialogueLine } from "./types";
 
-export type SubtitleStyle = "none" | "classic" | "tiktok" | "karaoke" | "pill";
+export type SubtitleStyle = "none" | "classic" | "tiktok" | "karaoke" | "pill" | "dialogue";
 
 // Group words into lines of max N words each, keeping timing
 type SubtitleLine = { words: WordTimestamp[]; start: number; end: number };
@@ -139,6 +140,109 @@ export function buildSubtitleFile(words: WordTimestamp[], style: SubtitleStyle):
     case "classic": return { content: buildClassicAss(words), ext: "ass" };
     default: return { content: buildSrt(words), ext: "srt" };
   }
+}
+
+// ── 对话字幕 — 按说话人分色显示 ──────────────────────────────────────────────
+// 调色板：最多6个角色，左右交替，颜色鲜明
+const SPEAKER_COLORS = [
+  "&H0000FFFF",   // 黄色 — 主角
+  "&H00FF7043",   // 橙蓝 — 配角
+  "&H0000FF00",   // 绿色 — 第三角色
+  "&H00FF00FF",   // 洋红
+  "&H0000FFFF",   // 青色
+  "&H00FFFFFF",   // 白色兜底
+];
+
+function getSpeakerColor(speaker: string, speakerMap: Map<string, number>): string {
+  if (!speakerMap.has(speaker)) {
+    speakerMap.set(speaker, speakerMap.size);
+  }
+  return SPEAKER_COLORS[speakerMap.get(speaker)! % SPEAKER_COLORS.length];
+}
+
+export function buildDialogueSubtitle(dialogues: DialogueLine[]): string {
+  const font = getCjkFont();
+  const size = fs(46);
+  const speakerMap = new Map<string, number>();
+
+  // Build one ASS Style per unique speaker
+  const uniqueSpeakers = [...new Set(dialogues.map(d => d.speaker))];
+  const styles = uniqueSpeakers.map((spk, idx) => {
+    const color = SPEAKER_COLORS[idx % SPEAKER_COLORS.length];
+    // Alternate alignment: odd speakers bottom-left (an1), even bottom-right (an3)
+    const align = idx % 2 === 0 ? 1 : 3;
+    return `Style: ${spk},${font},${size},${color},&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,${align},30,30,50,1`;
+  }).join("\n");
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+Collisions: Normal
+PlayDepth: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+${styles}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  // Lay out dialogues sequentially from t=0
+  let t = 0;
+  const events = dialogues.map(line => {
+    const start = t;
+    const end = t + line.durationSeconds;
+    t = end;
+    const speakerLabel = `{\\b1}${line.speaker}：{\\b0}`;
+    const event = `Dialogue: 0,${toAssTime(start)},${toAssTime(end)},${line.speaker},,0,0,0,,${speakerLabel}${line.text}`;
+    return event;
+  }).join("\n");
+
+  return header + events + "\n";
+}
+
+export function buildDialogueSubtitleFromScenes(
+  allDialogues: DialogueLine[][],
+  sceneDurations: number[]
+): string {
+  const font = getCjkFont();
+  const size = fs(46);
+
+  const allLines = allDialogues.flat();
+  const uniqueSpeakers = [...new Set(allLines.map(d => d.speaker))];
+  const styles = uniqueSpeakers.map((spk, idx) => {
+    const color = SPEAKER_COLORS[idx % SPEAKER_COLORS.length];
+    const align = idx % 2 === 0 ? 1 : 3;
+    return `Style: ${spk},${font},${size},${color},&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,${align},30,30,50,1`;
+  }).join("\n");
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+${styles}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  let globalT = 0;
+  const events: string[] = [];
+
+  allDialogues.forEach((sceneDialogues, si) => {
+    let localT = globalT;
+    sceneDialogues.forEach(line => {
+      const start = localT;
+      const end = localT + line.durationSeconds;
+      localT = end;
+      const label = `{\\b1}${line.speaker}：{\\b0}`;
+      events.push(`Dialogue: 0,${toAssTime(start)},${toAssTime(end)},${line.speaker},,0,0,0,,${label}${line.text}`);
+    });
+    globalT += sceneDurations[si] || 5;
+  });
+
+  return header + events.join("\n") + "\n";
 }
 
 // FFmpeg filter string for ASS/SRT burn-in

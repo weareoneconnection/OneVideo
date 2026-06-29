@@ -143,6 +143,7 @@ model Scene {
   model           String?
   externalTaskId  String?
   rawStatus       String?
+  dialogues       Json?    // DialogueLine[] — 短剧对话台词
   costCredits     Int      @default(0)
   errorMessage    String?
   queuedAt        DateTime?

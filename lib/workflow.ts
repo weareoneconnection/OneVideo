@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { generateScript, generateStoryboard } from "./oneai";
+import { generateScript, generateStoryboard, generateDialogueScript } from "./oneai";
 import { demoThumbnailUrl } from "./mock-video";
 import {
   createVideoTaskForScene,
@@ -221,6 +221,21 @@ export async function runProjectWorkflow(projectId: string) {
       language: project.language
     });
 
+    // 短剧模式：为每个场景生成角色对话台词
+    const dramaMode = process.env.DRAMA_MODE === "true";
+    let dialoguesByScene: import("./types").DialogueLine[][] = [];
+    if (dramaMode) {
+      try {
+        dialoguesByScene = await generateDialogueScript({
+          scenes,
+          topic: project.topic,
+          language: project.language
+        });
+      } catch (err) {
+        console.warn("[workflow] generateDialogueScript failed, skipping:", err);
+      }
+    }
+
     await db.scene.deleteMany({
       where: {
         projectId
@@ -253,12 +268,14 @@ export async function runProjectWorkflow(projectId: string) {
     const createdScenes = [];
 
     for (const scene of scenes) {
+      const sceneDialogues = dialoguesByScene[scene.sceneIndex - 1] || null;
       const createdScene = await db.scene.create({
         data: {
           projectId,
           sceneIndex: scene.sceneIndex,
           durationSeconds: scene.durationSeconds,
           voiceover: scene.voiceover,
+          dialogues: sceneDialogues ? (sceneDialogues as any) : undefined,
           visualPrompt: scene.visualPrompt,
           videoPrompt: scene.videoPrompt,
           cameraMotion: scene.cameraMotion,

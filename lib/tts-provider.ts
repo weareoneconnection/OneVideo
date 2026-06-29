@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import type { DialogueLine } from "./types";
 import { ensureProjectPublicDir, getProjectPublicUrl } from "./file-storage";
 
 const execFileAsync = promisify(execFile);
@@ -212,4 +214,109 @@ async function generateSilentAudio(
     localPath: outputPath,
     mimeType: "audio/mpeg"
   };
+}
+
+// ─── Multi-character dialogue audio ──────────────────────────────────────────
+// Maps speaker name → ElevenLabs voice ID from env
+// e.g. VOICE_主角=abc123  VOICE_女友=def456  VOICE_旁白=ghi789
+function getSpeakerVoiceId(speaker: string): string | undefined {
+  const key = `VOICE_${speaker.replace(/\s/g, "_")}`;
+  return process.env[key] || process.env.ELEVENLABS_DEFAULT_VOICE_ID || undefined;
+}
+
+export async function generateDialogueAudio(input: {
+  projectId: string;
+  sceneIndex: number;
+  dialogues: DialogueLine[];
+  language: string;
+  totalDurationSeconds: number;
+}): Promise<GenerateSpeechResult> {
+  const dir = await ensureProjectPublicDir(input.projectId);
+  const outputFilename = `voiceover-scene${input.sceneIndex}-dialogue.mp3`;
+  const outputPath = path.join(dir, outputFilename);
+  const tmpDir = os.tmpdir();
+  const lineFiles: string[] = [];
+
+  const { generateSpeechWithElevenLabs } = await import("./providers/elevenlabs");
+
+  for (let i = 0; i < input.dialogues.length; i++) {
+    const line = input.dialogues[i];
+    const voiceId = getSpeakerVoiceId(line.speaker);
+    const lineFile = path.join(tmpDir, `dialogue-${input.projectId}-s${input.sceneIndex}-l${i}.mp3`);
+
+    if (voiceId) {
+      try {
+        const result = await generateSpeechWithElevenLabs({
+          projectId: input.projectId,
+          text: line.text,
+          durationSeconds: line.durationSeconds,
+          language: input.language,
+          voiceId
+        });
+        // Copy to numbered tmp file
+        await execFileAsync(getFfmpegPath(), [
+          "-y", "-hide_banner", "-loglevel", "error",
+          "-i", result.localPath, lineFile
+        ]);
+      } catch (err) {
+        console.warn(`[tts] ElevenLabs failed for speaker "${line.speaker}", falling back to OpenAI:`, err);
+        await generateOpenAILine(line.text, lineFile, input.language);
+      }
+    } else {
+      await generateOpenAILine(line.text, lineFile, input.language);
+    }
+
+    lineFiles.push(lineFile);
+  }
+
+  // Concatenate all line files into one scene audio
+  if (lineFiles.length === 1) {
+    await execFileAsync(getFfmpegPath(), [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-i", lineFiles[0], "-c", "copy", outputPath
+    ]);
+  } else {
+    // Build concat filter
+    const inputs = lineFiles.flatMap(f => ["-i", f]);
+    await execFileAsync(getFfmpegPath(), [
+      "-y", "-hide_banner", "-loglevel", "error",
+      ...inputs,
+      "-filter_complex", `concat=n=${lineFiles.length}:v=0:a=1[aout]`,
+      "-map", "[aout]",
+      "-codec:a", "libmp3lame", "-q:a", "4",
+      outputPath
+    ]);
+  }
+
+  return {
+    provider: "dialogue",
+    model: "multi-character-v1",
+    url: getProjectPublicUrl(input.projectId, outputFilename),
+    localPath: outputPath,
+    mimeType: "audio/mpeg"
+  };
+}
+
+async function generateOpenAILine(text: string, outputPath: string, language: string): Promise<void> {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.TTS_API_KEY;
+  if (!apiKey) { await generateSilentLine(outputPath, text.length * 0.3); return; }
+  const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com";
+  const model = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
+  const voice = process.env.OPENAI_TTS_VOICE || "alloy";
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/audio/speech`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, voice, input: text, response_format: "mp3" })
+  });
+  if (!res.ok) { await generateSilentLine(outputPath, text.length * 0.3); return; }
+  await writeFile(outputPath, Buffer.from(await res.arrayBuffer()));
+}
+
+async function generateSilentLine(outputPath: string, durationSeconds: number): Promise<void> {
+  await execFileAsync(getFfmpegPath(), [
+    "-y", "-hide_banner", "-loglevel", "error",
+    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+    "-t", String(Math.max(0.5, durationSeconds)),
+    "-codec:a", "libmp3lame", "-q:a", "6", outputPath
+  ]);
 }
