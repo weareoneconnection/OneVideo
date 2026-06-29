@@ -201,22 +201,28 @@ function buildSceneDurations(input: {
   durationSeconds: number;
   provider?: string;
 }) {
+  // Kling: 按最大允许时长切片
   if (input.provider === "kling") {
     const maxSceneSeconds = Math.max(5, getKlingSceneMaxSeconds());
     const durations: number[] = [];
     let remaining = input.durationSeconds;
-
     while (remaining > 0) {
-      const nextDuration =
-        remaining <= 5 ? 5 : Math.min(maxSceneSeconds, remaining);
-
+      const nextDuration = remaining <= 5 ? 5 : Math.min(maxSceneSeconds, remaining);
       durations.push(nextDuration);
       remaining -= nextDuration;
     }
-
     return durations;
   }
 
+  // Seedance / Runway：固定 5s 片段，场景数 = ceil(目标时长 / 5)
+  // 每个场景的 durationSeconds 存 5，render 时 xfade 偏移正确
+  if (input.provider === "seedance" || input.provider === "runway") {
+    const clipLen = 5;
+    const count = Math.max(1, Math.ceil(input.durationSeconds / clipLen));
+    return Array.from({ length: count }, () => clipLen);
+  }
+
+  // 其他 provider：按 7s 均分，3~8 场景
   const count = Math.max(3, Math.min(8, Math.round(input.durationSeconds / 7)));
   const duration = Math.ceil(input.durationSeconds / count);
 
