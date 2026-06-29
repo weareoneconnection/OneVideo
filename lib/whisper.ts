@@ -29,10 +29,12 @@ export async function transcribeAudio(audioPath: string, language?: string): Pro
   form.append("timestamp_granularities[]", "word");
   if (language) form.append("language", language === "zh" ? "zh" : "en");
 
+  const timeoutMs = Number(process.env.WHISPER_TIMEOUT_MS || 30000);
   const res = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
-    body: form
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!res.ok) {

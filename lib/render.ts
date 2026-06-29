@@ -52,7 +52,7 @@ async function isClipUsable(clipPath: string): Promise<boolean> {
       "-f", "lavfi",
       "-i", `movie=${clipPath.replace(/\\/g, "/")},signalstats`,
       "-of", "json"
-    ]);
+    ], { timeout: 15000 });
     const parsed = JSON.parse(stdout) as { frames?: { tags?: { "lavfi.signalstats.YAVG"?: string } }[] };
     const frames = parsed.frames ?? [];
     if (frames.length === 0) return true;
