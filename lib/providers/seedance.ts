@@ -80,6 +80,28 @@ export async function createSeedanceVideoTask(
   const text = await res.text();
 
   if (!res.ok) {
+    // 图片包含真实人脸被拦截 → 自动降级为纯文字生成（去掉参考图重试）
+    if (isImageToVideo && text.includes("InputImageSensitiveContentDetected")) {
+      console.warn("[seedance] Reference image rejected (real person detected), retrying as text-to-video");
+      const t2vContent = content.filter((c: any) => c.type === "text");
+      const t2vRes = await fetch(`${baseUrl}/contents/generations/tasks`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, content: t2vContent })
+      });
+      const t2vText = await t2vRes.text();
+      if (!t2vRes.ok) {
+        throw new VideoProviderError(
+          `Seedance t2v fallback failed: HTTP ${t2vRes.status} — ${t2vText.slice(0, 300)}`,
+          { provider: "seedance", model }
+        );
+      }
+      const t2vData = JSON.parse(t2vText);
+      const t2vTaskId: string = t2vData?.id || t2vData?.task_id;
+      if (!t2vTaskId) throw new VideoProviderError(`Seedance t2v fallback returned no task id`, { provider: "seedance", model });
+      console.log(`[seedance] t2v fallback task created: ${t2vTaskId}`);
+      return { provider: "seedance", model, externalTaskId: t2vTaskId, generationType: "text_to_video", raw: t2vData };
+    }
     throw new VideoProviderError(
       `Seedance create task failed: HTTP ${res.status} ${res.statusText} — ${text.slice(0, 300)}`,
       { provider: "seedance", model }
