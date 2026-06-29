@@ -305,10 +305,26 @@ export async function runRenderWorkflow(projectId: string) {
         }
       ];
   const localClips: string[] = [];
+  const videoProvider = process.env.VIDEO_PROVIDER || "mock";
+  // Seedance/Kling generate videos with their own audio — strip it so TTS voiceover is clear
+  const stripClipAudio = process.env.STRIP_CLIP_AUDIO !== "false" &&
+    (videoProvider === "seedance" || videoProvider === "kling" || videoProvider === "runway");
 
   for (const clip of clipSources) {
-    const filePath = path.join(dir, clip.filename);
-    localClips.push(await downloadToFile(clip.url, filePath));
+    const rawPath = path.join(dir, clip.filename);
+    await downloadToFile(clip.url, rawPath);
+
+    if (stripClipAudio) {
+      // Re-encode to strip audio track from generated video clips
+      const silentPath = rawPath.replace(/\.mp4$/, "-silent.mp4");
+      await execFileAsync(getFfmpegPath(), [
+        "-y", "-hide_banner", "-loglevel", "error",
+        "-i", rawPath, "-an", "-c:v", "copy", silentPath
+      ]);
+      localClips.push(silentPath);
+    } else {
+      localClips.push(rawPath);
+    }
   }
 
   // Clip durations for xfade transitions (scene-level if available, else uniform)
