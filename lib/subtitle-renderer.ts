@@ -138,6 +138,9 @@ export function buildSubtitleFile(words: WordTimestamp[], style: SubtitleStyle):
     case "karaoke": return { content: buildKaraokeAss(words), ext: "ass" };
     case "pill": return { content: buildPillAss(words), ext: "ass" };
     case "classic": return { content: buildClassicAss(words), ext: "ass" };
+    // "dialogue" is handled separately via buildDialogueSubtitleFromScenes in render.ts
+    // Falls back to TikTok style if called directly without dialogue data
+    case "dialogue": return { content: buildTikTokAss(words), ext: "ass" };
     default: return { content: buildSrt(words), ext: "srt" };
   }
 }
@@ -146,30 +149,20 @@ export function buildSubtitleFile(words: WordTimestamp[], style: SubtitleStyle):
 // 调色板：最多6个角色，左右交替，颜色鲜明
 const SPEAKER_COLORS = [
   "&H0000FFFF",   // 黄色 — 主角
-  "&H00FF7043",   // 橙蓝 — 配角
+  "&H00FF7043",   // 蓝橙 — 配角
   "&H0000FF00",   // 绿色 — 第三角色
   "&H00FF00FF",   // 洋红
   "&H0000FFFF",   // 青色
   "&H00FFFFFF",   // 白色兜底
 ];
 
-function getSpeakerColor(speaker: string, speakerMap: Map<string, number>): string {
-  if (!speakerMap.has(speaker)) {
-    speakerMap.set(speaker, speakerMap.size);
-  }
-  return SPEAKER_COLORS[speakerMap.get(speaker)! % SPEAKER_COLORS.length];
-}
-
 export function buildDialogueSubtitle(dialogues: DialogueLine[]): string {
   const font = getCjkFont();
   const size = fs(46);
-  const speakerMap = new Map<string, number>();
 
-  // Build one ASS Style per unique speaker
   const uniqueSpeakers = [...new Set(dialogues.map(d => d.speaker))];
   const styles = uniqueSpeakers.map((spk, idx) => {
     const color = SPEAKER_COLORS[idx % SPEAKER_COLORS.length];
-    // Alternate alignment: odd speakers bottom-left (an1), even bottom-right (an3)
     const align = idx % 2 === 0 ? 1 : 3;
     return `Style: ${spk},${font},${size},${color},&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,1,${align},30,30,50,1`;
   }).join("\n");
@@ -187,15 +180,13 @@ ${styles}
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-  // Lay out dialogues sequentially from t=0
   let t = 0;
   const events = dialogues.map(line => {
     const start = t;
     const end = t + line.durationSeconds;
     t = end;
     const speakerLabel = `{\\b1}${line.speaker}：{\\b0}`;
-    const event = `Dialogue: 0,${toAssTime(start)},${toAssTime(end)},${line.speaker},,0,0,0,,${speakerLabel}${line.text}`;
-    return event;
+    return `Dialogue: 0,${toAssTime(start)},${toAssTime(end)},${line.speaker},,0,0,0,,${speakerLabel}${line.text}`;
   }).join("\n");
 
   return header + events + "\n";

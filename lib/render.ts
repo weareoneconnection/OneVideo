@@ -9,9 +9,10 @@ import { db } from "./db";
 import { ensureProjectPublicDir, getProjectPublicUrl } from "./file-storage";
 import { createPackagingAssets } from "./packaging";
 import { publishProjectFile } from "./storage-provider";
-import { generateSpeech } from "./tts-provider";
+import { generateSpeech, generateDialogueAudio } from "./tts-provider";
+import type { DialogueLine } from "./types";
 import { transcribeAudio, estimateWordTimestamps } from "./whisper";
-import { buildSubtitleFile, getSubtitleBurnFilter, type SubtitleStyle } from "./subtitle-renderer";
+import { buildSubtitleFile, buildDialogueSubtitleFromScenes, getSubtitleBurnFilter, type SubtitleStyle } from "./subtitle-renderer";
 import { generateSceneSfx, mixSfxUnderVoiceover } from "./providers/sfx";
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +23,8 @@ type RenderSceneItem = {
   durationSeconds: number;
   voiceover: string | null;
   storyBeat: string | null;
+  mood: string | null;
+  dialogues: unknown | null;   // DialogueLine[] stored as JSON
   status: string;
   videoUrl: string | null;
 };
@@ -243,13 +246,66 @@ export async function runRenderWorkflow(projectId: string) {
     completedScenes.map((scene: RenderSceneItem) => scene.voiceover).filter(Boolean).join(" ") ||
     project.topic;
 
-  const speech = await generateSpeech({
-    projectId,
-    text: voiceoverText,
-    durationSeconds: project.durationSeconds,
-    language: project.language,
-    elevenLabsVoiceId: (project as any).voiceProfile?.elevenLabsVoiceId
-  });
+  // 短剧模式：多角色对话配音；否则用单声道旁白
+  const dramaMode = process.env.DRAMA_MODE === "true" && hasSceneTimeline;
+  const allSceneDialogues: DialogueLine[][] = dramaMode
+    ? completedScenes.map(s => (Array.isArray(s.dialogues) ? (s.dialogues as DialogueLine[]) : []))
+    : [];
+  const hasDramaDialogues = dramaMode && allSceneDialogues.some(d => d.length > 0);
+
+  let speech: Awaited<ReturnType<typeof generateSpeech>>;
+
+  if (hasDramaDialogues) {
+    // 按场景依次生成多角色 TTS，合并成一段完整旁白音频
+    const perSceneResults = await Promise.all(
+      completedScenes.map(async (scene, i) => {
+        const lines = allSceneDialogues[i];
+        if (!lines.length) {
+          // 无对话的场景降级为普通 TTS
+          return generateSpeech({
+            projectId,
+            text: scene.voiceover || project.topic,
+            durationSeconds: scene.durationSeconds,
+            language: project.language
+          });
+        }
+        return generateDialogueAudio({
+          projectId,
+          sceneIndex: scene.sceneIndex,
+          dialogues: lines,
+          language: project.language,
+          totalDurationSeconds: scene.durationSeconds
+        });
+      })
+    );
+
+    if (perSceneResults.length === 1) {
+      speech = perSceneResults[0];
+    } else {
+      // ffmpeg concat all scene audios into one voiceover track
+      const { execFile: execFileNode } = await import("node:child_process");
+      const { promisify: prom } = await import("node:util");
+      const execFA = prom(execFileNode);
+      const concatPath = path.join(dir, "voiceover.mp3");
+      const inputs = perSceneResults.flatMap(r => ["-i", r.localPath]);
+      await execFA(getFfmpegPath(), [
+        "-y", "-hide_banner", "-loglevel", "error",
+        ...inputs,
+        "-filter_complex", `concat=n=${perSceneResults.length}:v=0:a=1[aout]`,
+        "-map", "[aout]", "-codec:a", "libmp3lame", "-q:a", "3",
+        concatPath
+      ]);
+      speech = { ...perSceneResults[0], localPath: concatPath, url: concatPath };
+    }
+  } else {
+    speech = await generateSpeech({
+      projectId,
+      text: voiceoverText,
+      durationSeconds: project.durationSeconds,
+      language: project.language,
+      elevenLabsVoiceId: (project as any).voiceProfile?.elevenLabsVoiceId
+    });
+  }
   const publishedSpeech = await publishProjectFile({
     projectId,
     filename: "voiceover.mp3",
@@ -354,9 +410,9 @@ export async function runRenderWorkflow(projectId: string) {
 
   // Scene metadata for rhythm-aware transitions
   const sceneMeta = hasSceneTimeline ? {
-    moods: completedScenes.map((s: RenderSceneItem) => (s as any).mood || ""),
+    moods: completedScenes.map((s: RenderSceneItem) => s.mood || ""),
     dialogueCounts: completedScenes.map((s: RenderSceneItem) => {
-      const d = (s as any).dialogues;
+      const d = s.dialogues;
       return Array.isArray(d) ? d.length : 0;
     })
   } : undefined;
@@ -477,21 +533,31 @@ export async function runRenderWorkflow(projectId: string) {
 
   if (subtitleEnabled && subtitleStyle !== "none") {
     try {
-      console.log(`[subtitle] Transcribing with Whisper (style: ${subtitleStyle})...`);
+      let subtitleContent: string;
+      let ext: "ass" | "srt";
 
-      // 尝试 Whisper 精准转录，失败则 fallback 到均匀估算
-      let wordTimestamps;
-      try {
-        const result = await transcribeAudio(speech.localPath, project.language);
-        wordTimestamps = result.words.length > 0 ? result.words : estimateWordTimestamps(voiceoverText, project.durationSeconds);
-        console.log(`[subtitle] Whisper got ${result.words.length} words`);
-      } catch (whisperErr) {
-        console.warn("[subtitle] Whisper failed, using estimated timestamps:", whisperErr);
-        wordTimestamps = estimateWordTimestamps(voiceoverText, project.durationSeconds);
+      // 短剧对话字幕：用 DialogueLine 时间轴直接渲染，无需 Whisper
+      if ((subtitleStyle === "dialogue" || hasDramaDialogues) && allSceneDialogues.some(d => d.length > 0)) {
+        console.log("[subtitle] Drama mode: building dialogue subtitles from scene dialogue data...");
+        const sceneDurs = completedScenes.map(s => s.durationSeconds);
+        subtitleContent = buildDialogueSubtitleFromScenes(allSceneDialogues, sceneDurs);
+        ext = "ass";
+      } else {
+        console.log(`[subtitle] Transcribing with Whisper (style: ${subtitleStyle})...`);
+
+        // 尝试 Whisper 精准转录，失败则 fallback 到均匀估算
+        let wordTimestamps;
+        try {
+          const result = await transcribeAudio(speech.localPath, project.language);
+          wordTimestamps = result.words.length > 0 ? result.words : estimateWordTimestamps(voiceoverText, project.durationSeconds);
+          console.log(`[subtitle] Whisper got ${result.words.length} words`);
+        } catch (whisperErr) {
+          console.warn("[subtitle] Whisper failed, using estimated timestamps:", whisperErr);
+          wordTimestamps = estimateWordTimestamps(voiceoverText, project.durationSeconds);
+        }
+
+        ({ content: subtitleContent, ext } = buildSubtitleFile(wordTimestamps, subtitleStyle));
       }
-
-      // 生成字幕文件 (ASS 或 SRT)
-      const { content: subtitleContent, ext } = buildSubtitleFile(wordTimestamps, subtitleStyle);
       const subtitleFilename = `subtitles-smart.${ext}`;
       const subtitleLocalPath = path.join(dir, subtitleFilename);
       await writeFile(subtitleLocalPath, subtitleContent, "utf8");
