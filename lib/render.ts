@@ -38,6 +38,38 @@ function getFfmpegPath() {
   return process.env.FFMPEG_PATH || "ffmpeg";
 }
 
+function getFfprobePath() {
+  return process.env.FFPROBE_PATH || "ffprobe";
+}
+
+// Detect blank/white/black clips via mean luma. Returns true if clip is usable.
+async function isClipUsable(clipPath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync(getFfprobePath(), [
+      "-v", "quiet",
+      "-select_streams", "v:0",
+      "-show_entries", "frame_tags=lavfi.signalstats.YAVG",
+      "-f", "lavfi",
+      "-i", `movie=${clipPath.replace(/\\/g, "/")},signalstats`,
+      "-of", "json"
+    ]);
+    const parsed = JSON.parse(stdout) as { frames?: { tags?: { "lavfi.signalstats.YAVG"?: string } }[] };
+    const frames = parsed.frames ?? [];
+    if (frames.length === 0) return true;
+    // Sample up to 5 frames evenly
+    const sample = [0, Math.floor(frames.length / 4), Math.floor(frames.length / 2), Math.floor(3 * frames.length / 4), frames.length - 1]
+      .filter((i, pos, arr) => arr.indexOf(i) === pos)
+      .map(i => parseFloat(frames[i]?.tags?.["lavfi.signalstats.YAVG"] ?? "128"));
+    const avgLuma = sample.reduce((a, b) => a + b, 0) / sample.length;
+    const minLumaThreshold = Number(process.env.CLIP_MIN_LUMA ?? "8");
+    const maxLumaThreshold = Number(process.env.CLIP_MAX_LUMA ?? "245");
+    return avgLuma >= minLumaThreshold && avgLuma <= maxLumaThreshold;
+  } catch {
+    // If ffprobe fails, assume clip is usable
+    return true;
+  }
+}
+
 function getRenderSize(aspectRatio: string) {
   if (aspectRatio === "16:9") {
     return {
@@ -381,14 +413,26 @@ export async function runRenderWorkflow(projectId: string) {
         }
       ];
   const localClips: string[] = [];
+  const skippedClipIndices: number[] = [];
   const videoProvider = process.env.VIDEO_PROVIDER || "mock";
   // Seedance/Kling generate videos with their own audio — strip it so TTS voiceover is clear
   const stripClipAudio = process.env.STRIP_CLIP_AUDIO !== "false" &&
     (videoProvider === "seedance" || videoProvider === "kling" || videoProvider === "runway");
+  const blankDetectionEnabled = process.env.CLIP_BLANK_DETECTION !== "false";
 
-  for (const clip of clipSources) {
+  for (let clipIdx = 0; clipIdx < clipSources.length; clipIdx++) {
+    const clip = clipSources[clipIdx];
     const rawPath = path.join(dir, clip.filename);
     await downloadToFile(clip.url, rawPath);
+
+    if (blankDetectionEnabled) {
+      const usable = await isClipUsable(rawPath);
+      if (!usable) {
+        console.warn(`[render] Skipping blank/white clip ${clip.filename} (luma out of range)`);
+        skippedClipIndices.push(clipIdx);
+        continue;
+      }
+    }
 
     if (stripClipAudio) {
       // Re-encode to strip audio track from generated video clips
@@ -403,15 +447,20 @@ export async function runRenderWorkflow(projectId: string) {
     }
   }
 
+  // Remove skipped clips from duration/mood arrays
+  const filteredCompletedScenes = hasSceneTimeline
+    ? completedScenes.filter((_, i) => !skippedClipIndices.includes(i))
+    : completedScenes;
+
   // Clip durations for xfade transitions (scene-level if available, else uniform)
   const clipDurations: number[] = hasSceneTimeline
-    ? completedScenes.map((s: RenderSceneItem) => s.durationSeconds || 5)
+    ? filteredCompletedScenes.map((s: RenderSceneItem) => s.durationSeconds || 5)
     : [project.durationSeconds];
 
   // Scene metadata for rhythm-aware transitions
   const sceneMeta = hasSceneTimeline ? {
-    moods: completedScenes.map((s: RenderSceneItem) => s.mood || ""),
-    dialogueCounts: completedScenes.map((s: RenderSceneItem) => {
+    moods: filteredCompletedScenes.map((s: RenderSceneItem) => s.mood || ""),
+    dialogueCounts: filteredCompletedScenes.map((s: RenderSceneItem) => {
       const d = s.dialogues;
       return Array.isArray(d) ? d.length : 0;
     })
@@ -490,19 +539,25 @@ export async function runRenderWorkflow(projectId: string) {
   const voiceIdx = localClips.length;
   ffmpegArgs.push("-i", effectiveSpeechPath);
 
+  const videoBitrate = process.env.VIDEO_BITRATE || "2500k";
+  const audioBitrate = process.env.AUDIO_BITRATE || "192k";
+
   if (musicLocalPath) {
     const musicIdx = voiceIdx + 1;
     const musicVolume = process.env.MUSIC_VOLUME || "0.12";
     ffmpegArgs.push("-i", musicLocalPath);
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad,loudnorm[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first,pan=stereo|c0=c0|c1=c0[aout]`,
       "-map", "[vout]",
       "-map", "[aout]",
       "-c:v", "libx264",
       "-preset", "veryfast",
+      "-b:v", videoBitrate,
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
+      "-b:a", audioBitrate,
+      "-ac", "2",
       "-shortest",
       "-movflags", "+faststart",
       outputPath
@@ -510,14 +565,16 @@ export async function runRenderWorkflow(projectId: string) {
   } else {
     ffmpegArgs.push(
       "-filter_complex",
-      buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta),
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad,loudnorm,pan=stereo|c0=c0|c1=c0[aout]`,
       "-map", "[vout]",
-      "-map", `${voiceIdx}:a:0`,
+      "-map", "[aout]",
       "-c:v", "libx264",
       "-preset", "veryfast",
+      "-b:v", videoBitrate,
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
-      "-af", "apad",
+      "-b:a", audioBitrate,
+      "-ac", "2",
       "-shortest",
       "-movflags", "+faststart",
       outputPath
