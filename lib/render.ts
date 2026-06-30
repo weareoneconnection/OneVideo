@@ -149,7 +149,7 @@ function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations
     return `[${index}:v:0]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${index}]`;
   });
 
-  const transitionStyle = process.env.VIDEO_TRANSITION || "fade";
+  const transitionStyle = process.env.VIDEO_TRANSITION || "none"; // default off: xfade OOMs on low-memory hosts
   const transitionDuration = Number(process.env.VIDEO_TRANSITION_DURATION_S || 0.4);
   const useTransitions =
     transitionStyle !== "none" &&
