@@ -553,7 +553,7 @@ export async function runRenderWorkflow(projectId: string) {
     ffmpegArgs.push("-i", musicLocalPath);
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad,dynaudnorm[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
       "-map", "[vout]",
       "-map", "[aout]",
       "-c:v", "libx264",
@@ -570,7 +570,7 @@ export async function runRenderWorkflow(projectId: string) {
   } else {
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad,dynaudnorm[aout]`,
+      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[aout]`,
       "-map", "[vout]",
       "-map", "[aout]",
       "-c:v", "libx264",
