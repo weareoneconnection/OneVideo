@@ -9,16 +9,13 @@ function safeJsonParse<T>(text: string, fallback: T): T {
       .replace(/```/g, "")
       .trim();
 
-    const match = cleaned.match(/\{[\s\S]*\}/);
+    // Try object first, then array
+    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     const jsonText = match ? match[0] : cleaned;
 
     return JSON.parse(jsonText) as T;
   } catch (error) {
-    console.error("OneAI JSON parse failed:", {
-      error,
-      rawText: text
-    });
-
+    console.error("[OneAI] JSON parse failed:", { error, rawText: text.slice(0, 200) });
     return fallback;
   }
 }
@@ -452,6 +449,8 @@ export class OneAIClient {
     const model = input.model || getOneAIModel();
     const url = `${this.baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
+    console.log(`[OneAI] calling model=${model} url=${url} keyPrefix=${this.apiKey.slice(0, 10)}...`);
+
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -462,55 +461,37 @@ export class OneAIClient {
         body: JSON.stringify({
           model,
           messages: [
-            {
-              role: "system",
-              content: input.system
-            },
-            {
-              role: "user",
-              content: input.prompt
-            }
+            { role: "system", content: input.system },
+            { role: "user", content: input.prompt }
           ],
           temperature: 0.7
-        })
+        }),
+        signal: AbortSignal.timeout(60_000) // 60s timeout
       });
 
       if (!res.ok) {
         const errorText = await res.text();
-
-        console.error("OneAI request failed:", {
-          status: res.status,
-          statusText: res.statusText,
-          body: errorText,
-          url,
-          model
-        });
-
-        return input.fallback;
+        // 抛出而不是静默 fallback，让 Railway 日志可见
+        throw new Error(`OneAI HTTP ${res.status} from ${url} model=${model}: ${errorText.slice(0, 300)}`);
       }
 
       const data = await res.json();
       const content = data?.choices?.[0]?.message?.content || "";
 
-      console.log("OneAI raw content:", content);
+      console.log("[OneAI] response length:", content.length, "preview:", content.slice(0, 80));
 
       if (!content) {
-        console.error("OneAI returned empty content:", {
-          data,
-          model
-        });
-
-        return input.fallback;
+        throw new Error(`OneAI returned empty content, model=${model}, data=${JSON.stringify(data).slice(0, 200)}`);
       }
 
-      return safeJsonParse<T>(content, input.fallback);
+      const parsed = safeJsonParse<T>(content, null as unknown as T);
+      if (parsed === null) {
+        throw new Error(`OneAI JSON parse failed, raw=${content.slice(0, 300)}`);
+      }
+      return parsed;
     } catch (error) {
-      console.error("OneAI request crashed:", {
-        error,
-        url,
-        model
-      });
-
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[OneAI] request failed (using fallback): ${msg}`);
       return input.fallback;
     }
   }
