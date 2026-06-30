@@ -555,10 +555,12 @@ export async function runRenderWorkflow(projectId: string) {
   await writeFile(concatListPath, concatListContent, "utf8");
 
   const concatVideoPath = path.join(dir, "concat-video.mp4");
+  // blend 模式需要保留 clip 原声供后续混音，其余模式去掉音频节省空间
   await execFileAsync(getFfmpegPath(), [
     "-y", "-hide_banner", "-loglevel", "error",
     "-f", "concat", "-safe", "0", "-i", concatListPath,
-    "-c:v", "copy", "-an",
+    "-c:v", "copy",
+    ...(blendClipAudio ? ["-c:a", "copy"] : ["-an"]),
     concatVideoPath
   ], { timeout: 120_000 });
 
