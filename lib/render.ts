@@ -144,9 +144,9 @@ function getRhythmTransitionDuration(
 }
 
 function buildConcatFilter(clipCount: number, aspectRatio: string, clipDurations?: number[], sceneMeta?: { moods: string[]; dialogueCounts: number[] }) {
-  const { width, height } = getRenderSize(aspectRatio);
+  // Clips are pre-normalized individually before this call — just label them
   const normalizedClips = Array.from({ length: clipCount }, (_, index) => {
-    return `[${index}:v:0]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v${index}]`;
+    return `[${index}:v:0]copy[v${index}]`;
   });
 
   const transitionStyle = process.env.VIDEO_TRANSITION || "none"; // default off: xfade OOMs on low-memory hosts
@@ -434,17 +434,20 @@ export async function runRenderWorkflow(projectId: string) {
       }
     }
 
-    if (stripClipAudio) {
-      // Re-encode to strip audio track from generated video clips
-      const silentPath = rawPath.replace(/\.mp4$/, "-silent.mp4");
-      await execFileAsync(getFfmpegPath(), [
-        "-y", "-hide_banner", "-loglevel", "error",
-        "-i", rawPath, "-an", "-c:v", "copy", silentPath
-      ]);
-      localClips.push(silentPath);
-    } else {
-      localClips.push(rawPath);
-    }
+    // Normalize each clip to target resolution individually (one ffmpeg call at a time)
+    // This keeps peak memory at 1× instead of N× when done inside a single filter_complex
+    const { width, height } = getRenderSize(project.aspectRatio);
+    const normalizedPath = rawPath.replace(/\.mp4$/, "-norm.mp4");
+    const normArgs = [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-i", rawPath,
+      "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`,
+      "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+      ...(stripClipAudio ? ["-an"] : ["-c:a", "copy"]),
+      normalizedPath
+    ];
+    await execFileAsync(getFfmpegPath(), normArgs, { timeout: 120_000 });
+    localClips.push(normalizedPath);
   }
 
   // Remove skipped clips from duration/mood arrays
