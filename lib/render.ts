@@ -542,33 +542,38 @@ export async function runRenderWorkflow(projectId: string) {
 
   const outputFilename = "final.mp4";
   const outputPath = path.join(dir, outputFilename);
-  const ffmpegArgs = ["-y", "-hide_banner", "-loglevel", "error"];
-
-  for (const clip of localClips) {
-    ffmpegArgs.push("-i", clip);
-  }
-
-  const voiceIdx = localClips.length;
-  ffmpegArgs.push("-i", effectiveSpeechPath);
-
-  // CRF (VBR) 模式：内存占用远低于 CBR (-b:v)，适合 Railway 低内存容器
-  // 画质：crf 23 ≈ 1.5-2Mbps，与之前 2500k CBR 画质接近但内存减少 60%
-  const videoCrf = process.env.VIDEO_CRF || "23";
   const audioBitrate = process.env.AUDIO_BITRATE || "128k";
 
+  // Step 1: concat pre-normalized clips using demuxer (no decode/encode — zero memory)
+  const concatListPath = path.join(dir, "concat.txt");
+  const concatListContent = localClips.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join("\n");
+  await writeFile(concatListPath, concatListContent, "utf8");
+
+  const concatVideoPath = path.join(dir, "concat-video.mp4");
+  await execFileAsync(getFfmpegPath(), [
+    "-y", "-hide_banner", "-loglevel", "error",
+    "-f", "concat", "-safe", "0", "-i", concatListPath,
+    "-c:v", "copy", "-an",
+    concatVideoPath
+  ], { timeout: 120_000 });
+
+  // Step 2: mux concat video + voiceover (+ optional BGM) into final MP4
+  const ffmpegArgs = ["-y", "-hide_banner", "-loglevel", "error",
+    "-i", concatVideoPath,
+    "-i", effectiveSpeechPath
+  ];
+  const voiceIdx = 1;
+
   if (musicLocalPath) {
-    const musicIdx = voiceIdx + 1;
+    const musicIdx = 2;
     const musicVolume = process.env.MUSIC_VOLUME || "0.12";
     ffmpegArgs.push("-i", musicLocalPath);
     ffmpegArgs.push(
       "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
-      "-map", "[vout]",
+      `[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
+      "-map", "0:v:0",
       "-map", "[aout]",
-      "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", videoCrf,
-      "-pix_fmt", "yuv420p",
+      "-c:v", "copy",
       "-c:a", "aac",
       "-b:a", audioBitrate,
       "-ac", "2",
@@ -578,14 +583,10 @@ export async function runRenderWorkflow(projectId: string) {
     );
   } else {
     ffmpegArgs.push(
-      "-filter_complex",
-      `${buildConcatFilter(localClips.length, project.aspectRatio, clipDurations, sceneMeta)};[${voiceIdx}:a]apad[aout]`,
-      "-map", "[vout]",
+      "-filter_complex", `[${voiceIdx}:a]apad[aout]`,
+      "-map", "0:v:0",
       "-map", "[aout]",
-      "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", videoCrf,
-      "-pix_fmt", "yuv420p",
+      "-c:v", "copy",
       "-c:a", "aac",
       "-b:a", audioBitrate,
       "-ac", "2",
