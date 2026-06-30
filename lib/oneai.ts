@@ -240,101 +240,20 @@ function buildFallbackBeat(input: {
   aspectRatio: string;
   isChinese: boolean;
 }) {
-  const hasConstructionOrigin = /工地|施工|建筑|安全帽|泥土|搬砖|construction|site/i.test(
-    input.topic
-  );
-  const hasTradingSystem = /交易|量化|trade|trading|stock|crypto|forex/i.test(
-    input.topic
-  );
-
-  const originZh = hasConstructionOrigin
-    ? "真实工地环境，安全帽、灰尘、粗糙双手、汗水和钢筋混凝土，人物有明确面部表情"
-    : "主题相关的真实工作现场，人物正在处理具体问题，桌面、工具、手机和环境细节清晰可见";
-  const originEn = hasConstructionOrigin
-    ? "real construction site, hard hat, dust, rough hands, sweat, concrete and steel, a clearly visible person with grounded emotion"
-    : "a real work environment related to the topic, a person handling a concrete problem, visible desk, tools, phone and location details";
-  const systemZh = hasTradingSystem
-    ? "高质量交易系统界面、AI 决策节点、风险控制面板、实时曲线，但画面必须像真实软件产品演示"
-    : "高质量软件系统界面、AI 自动化节点、任务状态面板、实时数据变化，但画面必须像真实产品演示";
-  const systemEn = hasTradingSystem
-    ? "high-quality trading system interface, AI decision nodes, risk-control panels, live curves, realistic software product demo"
-    : "high-quality software system interface, AI automation nodes, task status panels, live data changes, realistic product demo";
-
-  const beatsZh = [
-    {
-      label: "真实出身",
-      visual: originZh,
-      motion: "低机位跟拍，轻微手持，慢慢推近人物"
-    },
-    {
-      label: "反差转折",
-      visual:
-        "夜晚小办公室或出租屋，人物坐在电脑前，屏幕上有代码编辑器、产品后台和自动化控制面板",
-      motion: "从人物背影推到屏幕特写，再切到手指敲键盘"
-    },
-    {
-      label: "系统能力",
-      visual: systemZh,
-      motion: "屏幕特写横移，数据面板层层展开"
-    },
-    {
-      label: "人生反差",
-      visual:
-        "一半是过去的工作现场，一半是现在的科技工作台，人物从原来的工作状态切换到干净专注的创作者状态",
-      motion: "匹配剪辑转场，快速推进后定格"
-    },
-    {
-      label: "结果展示",
-      visual:
-        "人物面对镜头展示系统仪表盘，桌面有手机和笔记本，背景干净真实，不要虚构豪车豪宅",
-      motion: "中景稳定镜头，最后轻微推近"
-    }
-  ];
-
-  const beatsEn = [
-    {
-      label: "real origin",
-      visual: originEn,
-      motion: "low-angle handheld tracking shot, slow push toward the subject"
-    },
-    {
-      label: "contrast turn",
-      visual:
-        "small night office or rented room, the same person at a computer, trading charts, code editor and automation dashboard on screen",
-      motion: "push from the person's back to screen close-up, then fingers typing"
-    },
-    {
-      label: "system capability",
-      visual: systemEn,
-      motion: "close-up lateral move across the screen as data panels reveal"
-    },
-    {
-      label: "life contrast",
-      visual:
-        "split visual between the person's past work environment and current tech workstation, the person transforms from old work mode into a focused creator mode",
-      motion: "match cut transition, quick push-in and hold"
-    },
-    {
-      label: "result reveal",
-      visual:
-        "the person faces camera and shows the dashboard, phone and laptop on desk, clean realistic background, no luxury cliches",
-      motion: "stable medium shot, subtle final push-in"
-    }
-  ];
-
-  const beats = input.isChinese ? beatsZh : beatsEn;
-  const beat = beats[Math.min(input.sceneIndex - 1, beats.length - 1)];
-  const sceneLabel = input.isChinese
-    ? `第 ${input.sceneIndex}/${input.totalScenes} 段：${beat.label}`
-    : `Scene ${input.sceneIndex}/${input.totalScenes}: ${beat.label}`;
-
+  // Intentionally generic — just describe the topic directly for each scene position
+  // so fallback scenes are at least on-topic instead of hardcoded 工地/交易 imagery
+  const ratio = input.sceneIndex / input.totalScenes;
+  const topicShort = input.topic.slice(0, 40);
+  const sceneLabel = input.isChinese ? `第${input.sceneIndex}场` : `Scene ${input.sceneIndex}`;
+  const phaseZh = ratio <= 0.25 ? "开场建立情境" : ratio <= 0.6 ? "情节发展推进" : ratio <= 0.85 ? "高潮关键时刻" : "收尾结果呈现";
+  const phaseEn = ratio <= 0.25 ? "opening establishing shot" : ratio <= 0.6 ? "story development" : ratio <= 0.85 ? "climactic moment" : "resolution and reveal";
+  const motionZh = ratio <= 0.25 ? "低机位缓慢推近，自然手持感" : ratio <= 0.6 ? "中景跟拍，稳定流畅" : ratio <= 0.85 ? "特写快切，情绪递进" : "回拉中景，主角面向镜头";
+  const motionEn = ratio <= 0.25 ? "low-angle slow push, natural handheld feel" : ratio <= 0.6 ? "medium tracking shot, smooth" : ratio <= 0.85 ? "close-up quick cut, emotional escalation" : "pull back to medium, subject facing camera";
   return {
-    sceneLabel,
-    visual: beat.visual,
-    motion: beat.motion,
     prompt: input.isChinese
-      ? `${sceneLabel}。主题：${input.topic}。竖屏 ${input.aspectRatio} 写实短视频镜头，${beat.visual}。镜头：${beat.motion}。电影级自然光，真实人物，真实地点，细节清晰，短视频爆款节奏。避免抽象科技背景，避免空泛城市航拍，避免假大空宣传片。`
-      : `${sceneLabel}. Topic: ${input.topic}. Vertical ${input.aspectRatio} realistic short-video shot, ${beat.visual}. Camera: ${beat.motion}. Cinematic natural light, real person, real location, clear details, strong short-video pacing. Avoid abstract tech backgrounds, generic city aerials and corporate stock footage.`
+      ? `${sceneLabel}（${phaseZh}）。主题：${topicShort}。竖屏 ${input.aspectRatio} 写实镜头，真实还原主题场景，人物动作清晰，光线自然，细节丰富。镜头：${motionZh}。避免抽象背景和泛化宣传片风格。`
+      : `${sceneLabel} (${phaseEn}). Topic: ${topicShort}. Vertical ${input.aspectRatio} realistic shot, faithfully recreating the topic scene, clear subject action, natural light, rich detail. Camera: ${motionEn}. No abstract backgrounds or generic corporate stock imagery.`,
+    motion: input.isChinese ? motionZh : motionEn
   };
 }
 
@@ -343,72 +262,25 @@ function buildFallbackContinuity(input: {
   totalScenes: number;
   isChinese: boolean;
 }) {
-  const zh = [
-    {
-      storyBeat: "建立过去处境和反差起点",
-      entryState: "主角在真实工作现场低头干活，身体疲惫",
-      exitState: "主角停下动作，看向手里的手机或远处，露出想改变的表情",
-      transitionFromPrevious: "开场直接进入真实环境"
-    },
-    {
-      storyBeat: "从体力劳动切到夜晚学习和尝试",
-      entryState: "延续上一段疲惫但不甘心的情绪，主角回到小房间坐到电脑前",
-      exitState: "电脑屏幕亮起，代码和系统原型开始出现",
-      transitionFromPrevious: "用手部动作或同一件道具做匹配剪辑"
-    },
-    {
-      storyBeat: "展示系统开始运行并产生具体反馈",
-      entryState: "主角盯着同一台电脑，继续调试刚刚出现的系统",
-      exitState: "仪表盘出现结果提示，主角表情从紧张变成确认",
-      transitionFromPrevious: "从屏幕亮光接到系统界面特写"
-    },
-    {
-      storyBeat: "强化过去和现在的对比",
-      entryState: "主角回想工地画面，同时手仍放在电脑旁",
-      exitState: "主角把旧道具放到桌边，重新看向系统",
-      transitionFromPrevious: "用相同姿势做匹配剪辑"
-    },
-    {
-      storyBeat: "收束成结果展示和行动号召",
-      entryState: "主角坐在同一个工作桌前，系统已经稳定运行",
-      exitState: "主角看向镜头，画面停在系统和人物同框",
-      transitionFromPrevious: "从桌面道具推到人物中景"
-    }
-  ];
-  const en = [
-    {
-      storyBeat: "establish the old life and contrast",
-      entryState: "the protagonist is doing physical work in a real environment, visibly tired",
-      exitState: "the protagonist pauses, looks at the phone or into the distance, wanting change",
-      transitionFromPrevious: "open directly inside the real environment"
-    },
-    {
-      storyBeat: "cut from manual labor to late-night learning and building",
-      entryState: "continuing the tired but determined emotion, the protagonist sits at a computer in a small room",
-      exitState: "the computer screen lights up with code and an early system prototype",
-      transitionFromPrevious: "match cut through a hand movement or the same prop"
-    },
-    {
-      storyBeat: "show the system beginning to work with concrete feedback",
-      entryState: "the protagonist keeps debugging on the same laptop",
-      exitState: "the dashboard shows a result and the protagonist shifts from tension to confirmation",
-      transitionFromPrevious: "cut from screen glow into a dashboard close-up"
-    },
-    {
-      storyBeat: "strengthen the contrast between past and present",
-      entryState: "the protagonist remembers the worksite while their hand remains near the computer",
-      exitState: "the protagonist places the old prop beside the desk and looks back at the system",
-      transitionFromPrevious: "match cut using the same body posture"
-    },
-    {
-      storyBeat: "resolve into proof and call to action",
-      entryState: "the protagonist sits at the same desk with the system now running steadily",
-      exitState: "the protagonist looks toward camera with the system and person in the same frame",
-      transitionFromPrevious: "push from desk props to a medium shot of the person"
-    }
-  ];
-  const beats = input.isChinese ? zh : en;
-  return beats[Math.min(input.sceneIndex - 1, beats.length - 1)];
+  const ratio = input.sceneIndex / input.totalScenes;
+  if (input.isChinese) {
+    const beat = ratio <= 0.25
+      ? { storyBeat: "开场建立情境", entryState: "主角出现在主题场景中", exitState: "镜头推近，情绪建立", transitionFromPrevious: "开场直接进入" }
+      : ratio <= 0.6
+      ? { storyBeat: "情节推进", entryState: "延续上一场的情绪和场景", exitState: "行动或变化发生", transitionFromPrevious: "用主角动作或道具做匹配剪辑" }
+      : ratio <= 0.85
+      ? { storyBeat: "高潮关键时刻", entryState: "情绪和动作达到顶点", exitState: "主角完成关键动作，画面定格一瞬", transitionFromPrevious: "节奏加快，快切进入" }
+      : { storyBeat: "收尾展示结果", entryState: "情绪回落，主角面向镜头", exitState: "画面结束，主角与环境同框", transitionFromPrevious: "从动作回到静止镜头" };
+    return beat;
+  }
+  const beat = ratio <= 0.25
+    ? { storyBeat: "opening establishing shot", entryState: "subject appears in the main scene", exitState: "camera pushes in, emotion established", transitionFromPrevious: "open directly" }
+    : ratio <= 0.6
+    ? { storyBeat: "story development", entryState: "continuing emotion and scene from previous", exitState: "action or change occurs", transitionFromPrevious: "match cut on subject action or prop" }
+    : ratio <= 0.85
+    ? { storyBeat: "climactic moment", entryState: "emotion and action peak", exitState: "subject completes key action, brief hold", transitionFromPrevious: "faster pacing, quick cut" }
+    : { storyBeat: "resolution and reveal", entryState: "emotion settles, subject faces camera", exitState: "scene ends with subject and environment in frame", transitionFromPrevious: "cut from action back to still shot" };
+  return beat;
 }
 
 export class OneAIClient {
