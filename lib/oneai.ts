@@ -673,19 +673,19 @@ export async function generateScript(input: {
   const isChinese = input.language === "zh" || input.language === "Chinese";
 
   const fallback: ShortVideoScript = {
-    title: isChinese ? "AI短视频生成计划" : "AI Video Launch Plan",
+    title: isChinese ? input.topic.slice(0, 20) : input.topic.slice(0, 30),
     hook: isChinese
-      ? "你敢相信吗？一个想法，现在可以直接变成一条短视频。"
-      : "What if one idea could become a finished short video?",
+      ? `你没想到吧？${input.topic.slice(0, 30)}`
+      : `Nobody told you this about: ${input.topic.slice(0, 40)}`,
     body: isChinese
-      ? `今天我们要把这个主题做成短视频：${input.topic}。系统会自动生成脚本、分镜、画面、配音和字幕，让内容生产像流水线一样运转。`
-      : `Today we turn this idea into a short video: ${input.topic}. The system generates the script, storyboard, visuals, voiceover and captions automatically.`,
+      ? `${input.topic}。这件事改变了我对一切的看法，细节决定成败，坚持才能走到最后。`
+      : `${input.topic}. This changed everything I thought I knew. The details matter, and persistence is the key.`,
     cta: isChinese
-      ? "想看我如何用代码做出来，评论区留言。"
-      : "Comment if you want to see how this is built in code.",
+      ? "你有同感吗？评论告诉我。"
+      : "Can you relate? Tell me in the comments.",
     fullVoiceover: isChinese
-      ? `你敢相信吗？一个想法，现在可以直接变成一条短视频。今天我们要把这个主题做成短视频：${input.topic}。系统会自动生成脚本、分镜、画面、配音和字幕，让内容生产像流水线一样运转。想看我如何用代码做出来，评论区留言。`
-      : `What if one idea could become a finished short video? Today we turn this idea into a short video: ${input.topic}. The system generates the script, storyboard, visuals, voiceover and captions automatically. Comment if you want to see how this is built in code.`,
+      ? `你没想到吧？${input.topic}。这件事改变了我对一切的看法，细节决定成败，坚持才能走到最后。你有同感吗？评论告诉我。`
+      : `Nobody told you this about: ${input.topic}. This changed everything I thought I knew. The details matter, and persistence is the key. Can you relate? Tell me in the comments.`,
     visualBible: buildFallbackVisualBible({
       topic: input.topic,
       aspectRatio: input.aspectRatio,

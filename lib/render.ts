@@ -415,9 +415,14 @@ export async function runRenderWorkflow(projectId: string) {
   const localClips: string[] = [];
   const skippedClipIndices: number[] = [];
   const videoProvider = process.env.VIDEO_PROVIDER || "mock";
-  // Seedance/Kling generate videos with their own audio — strip it so TTS voiceover is clear
-  const stripClipAudio = process.env.STRIP_CLIP_AUDIO !== "false" &&
+  // CLIP_AUDIO_MODE: "strip" = 去掉原声只用TTS | "keep" = 保留原声去掉TTS | "blend" = 混音(默认)
+  const clipAudioMode = process.env.CLIP_AUDIO_MODE || "blend";
+  const stripClipAudio = clipAudioMode === "strip" ||
+    (process.env.STRIP_CLIP_AUDIO === "true"); // 旧env兼容
+  const keepClipAudio = clipAudioMode === "keep"; // 保留原声，不加TTS旁白
+  const blendClipAudio = clipAudioMode === "blend" &&
     (videoProvider === "seedance" || videoProvider === "kling" || videoProvider === "runway");
+  const clipAudioVolume = process.env.CLIP_AUDIO_VOLUME || "0.15"; // 原声音量（背景感）
   const blankDetectionEnabled = process.env.CLIP_BLANK_DETECTION !== "false";
 
   for (let clipIdx = 0; clipIdx < clipSources.length; clipIdx++) {
@@ -443,7 +448,7 @@ export async function runRenderWorkflow(projectId: string) {
       "-i", rawPath,
       "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`,
       "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-      ...(stripClipAudio ? ["-an"] : ["-c:a", "copy"]),
+      ...(stripClipAudio ? ["-an"] : ["-c:a", "aac", "-b:a", "96k"]),
       normalizedPath
     ];
     await execFileAsync(getFfmpegPath(), normArgs, { timeout: 120_000 });
@@ -564,35 +569,47 @@ export async function runRenderWorkflow(projectId: string) {
   ];
   const voiceIdx = 1;
 
+  // Build audio filter: blend = TTS旁白 + 原声(低音量背景) | strip = 纯TTS | keep = 纯原声
+  const buildAudioFilter = (voiceStream: string, extraStreams: string[], extraFilters: string) => {
+    if (keepClipAudio) {
+      // 保留原声，不加TTS
+      return { filter: `[0:a]apad[aout]`, map: "[aout]" };
+    }
+    if (blendClipAudio) {
+      // TTS旁白 + Seedance原声(低音量)混合
+      const blend = `[${voiceStream}]apad,volume=1.0[tts];[0:a]volume=${clipAudioVolume},apad[clipbg];[tts][clipbg]amix=inputs=2:duration=first${extraFilters}`;
+      return { filter: blend, map: "[aout]" };
+    }
+    // strip or default: TTS only
+    return { filter: `[${voiceStream}]apad${extraFilters}`, map: "[aout]" };
+  };
+
   if (musicLocalPath) {
     const musicIdx = 2;
     const musicVolume = process.env.MUSIC_VOLUME || "0.12";
     ffmpegArgs.push("-i", musicLocalPath);
+    const { filter, map } = buildAudioFilter(`${voiceIdx}:a`, [`${musicIdx}:a`],
+      blendClipAudio
+        ? `;[${musicIdx}:a]volume=${musicVolume},apad[bgm];[aout_pre][bgm]amix=inputs=2:duration=first[aout]`
+        : `;[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`
+    );
     ffmpegArgs.push(
-      "-filter_complex",
-      `[${voiceIdx}:a]apad[voice];[${musicIdx}:a]volume=${musicVolume},apad[bgm];[voice][bgm]amix=inputs=2:duration=first[aout]`,
-      "-map", "0:v:0",
-      "-map", "[aout]",
-      "-c:v", "copy",
-      "-c:a", "aac",
-      "-b:a", audioBitrate,
-      "-ac", "2",
-      "-shortest",
-      "-movflags", "+faststart",
-      outputPath
+      "-filter_complex", filter,
+      "-map", "0:v:0", "-map", map,
+      "-c:v", "copy", "-c:a", "aac", "-b:a", audioBitrate, "-ac", "2",
+      "-shortest", "-movflags", "+faststart", outputPath
     );
   } else {
+    const audioFilter = keepClipAudio
+      ? `[0:a]apad[aout]`
+      : blendClipAudio
+        ? `[${voiceIdx}:a]apad,volume=1.0[tts];[0:a]volume=${clipAudioVolume},apad[clipbg];[tts][clipbg]amix=inputs=2:duration=first[aout]`
+        : `[${voiceIdx}:a]apad[aout]`;
     ffmpegArgs.push(
-      "-filter_complex", `[${voiceIdx}:a]apad[aout]`,
-      "-map", "0:v:0",
-      "-map", "[aout]",
-      "-c:v", "copy",
-      "-c:a", "aac",
-      "-b:a", audioBitrate,
-      "-ac", "2",
-      "-shortest",
-      "-movflags", "+faststart",
-      outputPath
+      "-filter_complex", audioFilter,
+      "-map", "0:v:0", "-map", "[aout]",
+      "-c:v", "copy", "-c:a", "aac", "-b:a", audioBitrate, "-ac", "2",
+      "-shortest", "-movflags", "+faststart", outputPath
     );
   }
 
