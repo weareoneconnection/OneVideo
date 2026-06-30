@@ -525,7 +525,13 @@ export async function runRenderWorkflow(projectId: string) {
         sfxPath: sfxLocalPath,
         outputPath: mixedPath
       });
-      effectiveSpeechPath = mixedPath;
+      // Verify the mixed file actually exists before using it
+      const mixedSize = await getFileSize(mixedPath).catch(() => 0);
+      if (mixedSize > 0) {
+        effectiveSpeechPath = mixedPath;
+      } else {
+        console.warn("[render] SFX mixed file is empty, using plain voiceover");
+      }
     } catch (err) {
       console.warn("[render] SFX mixing failed, using plain voiceover:", err);
     }
@@ -588,7 +594,16 @@ export async function runRenderWorkflow(projectId: string) {
 
   // 主编码超时：每秒视频约 10s 编码时间，最少 120s，最多 300s
   const renderTimeoutMs = Math.max(120_000, (project.durationSeconds || 60) * 10_000);
-  await execFileAsync(getFfmpegPath(), ffmpegArgs, { timeout: renderTimeoutMs });
+  try {
+    await execFileAsync(getFfmpegPath(), ffmpegArgs, { timeout: renderTimeoutMs });
+  } catch (ffmpegErr: unknown) {
+    // Extract the last meaningful line from ffmpeg stderr for a readable error
+    const raw = (ffmpegErr as { stderr?: string; message?: string }).stderr
+      || (ffmpegErr as { message?: string }).message
+      || String(ffmpegErr);
+    const lastLine = raw.split("\n").map(l => l.trim()).filter(Boolean).slice(-3).join(" | ");
+    throw new Error(`ffmpeg encode failed: ${lastLine}`);
+  }
 
   // 智能字幕：Whisper 转录 + 爆款样式烧录
   const subtitleStyle = ((project as any).subtitleStyle || "tiktok") as SubtitleStyle;
