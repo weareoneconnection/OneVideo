@@ -539,8 +539,10 @@ export async function runRenderWorkflow(projectId: string) {
   const voiceIdx = localClips.length;
   ffmpegArgs.push("-i", effectiveSpeechPath);
 
-  const videoBitrate = process.env.VIDEO_BITRATE || "2500k";
-  const audioBitrate = process.env.AUDIO_BITRATE || "192k";
+  // CRF (VBR) 模式：内存占用远低于 CBR (-b:v)，适合 Railway 低内存容器
+  // 画质：crf 23 ≈ 1.5-2Mbps，与之前 2500k CBR 画质接近但内存减少 60%
+  const videoCrf = process.env.VIDEO_CRF || "23";
+  const audioBitrate = process.env.AUDIO_BITRATE || "128k";
 
   if (musicLocalPath) {
     const musicIdx = voiceIdx + 1;
@@ -553,7 +555,7 @@ export async function runRenderWorkflow(projectId: string) {
       "-map", "[aout]",
       "-c:v", "libx264",
       "-preset", "veryfast",
-      "-b:v", videoBitrate,
+      "-crf", videoCrf,
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", audioBitrate,
@@ -570,7 +572,7 @@ export async function runRenderWorkflow(projectId: string) {
       "-map", "[aout]",
       "-c:v", "libx264",
       "-preset", "veryfast",
-      "-b:v", videoBitrate,
+      "-crf", videoCrf,
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", audioBitrate,
