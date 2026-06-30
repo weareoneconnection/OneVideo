@@ -24,7 +24,10 @@ function safeJsonParse<T>(text: string, fallback: T): T {
 }
 
 function getOneAIModel() {
-  return process.env.ONEAI_MODEL || "deepseek-chat";
+  if (process.env.ONEAI_MODEL) return process.env.ONEAI_MODEL;
+  // 没有自定义 LLM 代理时，用 OPENAI_API_KEY → gpt-4o-mini (快/便宜)
+  if (!process.env.ONEAI_API_KEY && process.env.OPENAI_API_KEY) return "gpt-4o-mini";
+  return "deepseek-chat";
 }
 
 function getKlingSceneMaxSeconds() {
@@ -416,8 +419,12 @@ export class OneAIClient {
   private apiKey: string;
 
   constructor() {
-    this.baseUrl = process.env.ONEAI_BASE_URL || "";
-    this.apiKey = process.env.ONEAI_API_KEY || "";
+    // 优先用 ONEAI_* (自定义 LLM 代理)，fallback 到 OPENAI_API_KEY (官方 OpenAI)
+    const oneaiKey = process.env.ONEAI_API_KEY || "";
+    const openaiKey = process.env.OPENAI_API_KEY || "";
+    this.apiKey = oneaiKey || openaiKey;
+    this.baseUrl = process.env.ONEAI_BASE_URL ||
+      (openaiKey && !oneaiKey ? (process.env.OPENAI_BASE_URL || "https://api.openai.com") : "");
   }
 
   async chatJSON<T>(input: {
@@ -434,11 +441,11 @@ export class OneAIClient {
     }
 
     if (!this.apiKey || !this.baseUrl) {
-      console.warn("OneAI skipped: missing ONEAI_API_KEY or ONEAI_BASE_URL", {
+      console.error("[OneAI] CRITICAL: No API key configured — set ONEAI_API_KEY or OPENAI_API_KEY in Railway env vars", {
         hasApiKey: Boolean(this.apiKey),
         hasBaseUrl: Boolean(this.baseUrl)
       });
-
+      // 静默 fallback，让流程继续（脚本生成失败时返回最基础内容）
       return input.fallback;
     }
 
