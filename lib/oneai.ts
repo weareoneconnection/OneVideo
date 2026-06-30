@@ -338,7 +338,7 @@ export class OneAIClient {
           ],
           temperature: 0.7
         }),
-        signal: AbortSignal.timeout(60_000) // 60s timeout
+        signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 60_000); return c.signal; })()
       });
 
       if (!res.ok) {
