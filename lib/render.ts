@@ -477,7 +477,9 @@ export async function runRenderWorkflow(projectId: string) {
 
   if (musicProvider && musicProvider !== "failed" && musicProvider !== "none" && !musicUrl) {
     console.log("Waiting for background music to finish...");
-    for (let i = 0; i < 9 && !musicUrl; i++) {
+    // 最多等 30s (3×10s)，避免长时间阻塞 render
+    const musicWaitLimit = Number(process.env.MUSIC_WAIT_LIMIT ?? 3);
+    for (let i = 0; i < musicWaitLimit && !musicUrl; i++) {
       await new Promise((r) => setTimeout(r, 10000));
       const p = await db.project.findUnique({
         where: { id: projectId },
@@ -485,6 +487,7 @@ export async function runRenderWorkflow(projectId: string) {
       });
       musicUrl = p?.backgroundMusicUrl ?? undefined;
     }
+    if (!musicUrl) console.warn("[render] BGM not ready after wait, skipping music");
   }
 
   if (musicUrl) {
@@ -583,7 +586,9 @@ export async function runRenderWorkflow(projectId: string) {
     );
   }
 
-  await execFileAsync(getFfmpegPath(), ffmpegArgs);
+  // 主编码超时：每秒视频约 10s 编码时间，最少 120s，最多 300s
+  const renderTimeoutMs = Math.max(120_000, (project.durationSeconds || 60) * 10_000);
+  await execFileAsync(getFfmpegPath(), ffmpegArgs, { timeout: renderTimeoutMs });
 
   // 智能字幕：Whisper 转录 + 爆款样式烧录
   const subtitleStyle = ((project as any).subtitleStyle || "tiktok") as SubtitleStyle;
@@ -643,7 +648,7 @@ export async function runRenderWorkflow(projectId: string) {
         "-c:a", "copy",
         burnedPath
       ];
-      await execFileAsync(getFfmpegPath(), burnArgs);
+      await execFileAsync(getFfmpegPath(), burnArgs, { timeout: renderTimeoutMs });
       const burnedSize = await getFileSize(burnedPath).catch(() => null);
       if (burnedSize && burnedSize > 0) {
         await rename(burnedPath, outputPath);
