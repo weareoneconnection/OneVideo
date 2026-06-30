@@ -526,7 +526,7 @@ export async function runRenderWorkflow(projectId: string) {
         outputPath: mixedPath
       });
       // Verify the mixed file actually exists before using it
-      const mixedSize = await getFileSize(mixedPath).catch(() => 0);
+      const mixedSize = (await getFileSize(mixedPath).catch(() => 0)) ?? 0;
       if (mixedSize > 0) {
         effectiveSpeechPath = mixedPath;
       } else {
